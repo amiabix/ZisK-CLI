@@ -1,6 +1,6 @@
 {
   "name": "@abix/zisk-dev-cli",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A personal CLI tool for ZisK zkVM development testing and learning purposes. This is NOT an official ZisK tool - for production use, please refer to the official ZisK documentation. This tool automates basic ZisK workflows for educational and testing purposes only.",
   "main": "src/index.js",
   "bin": {
