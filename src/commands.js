@@ -772,13 +772,7 @@ async function checkBasicRustProject() {
   try {
     const cargoContent = await fs.readFile(cargoTomlPath, 'utf8');
     // Check if it's a basic Rust project (not ZisK-specific)
-    // Look for actual dependencies, not just comments
-    const hasZiskDependency = cargoContent.includes('[dependencies]') && 
-                             (cargoContent.includes('zisk =') || cargoContent.includes('cargo-zisk ='));
-    const hasZiskBuildDependency = cargoContent.includes('[build-dependencies]') && 
-                                   (cargoContent.includes('zisk =') || cargoContent.includes('cargo-zisk ='));
-    
-    return !hasZiskDependency && !hasZiskBuildDependency;
+    return !cargoContent.includes('zisk') && !cargoContent.includes('cargo-zisk');
   } catch (error) {
     return false;
   }

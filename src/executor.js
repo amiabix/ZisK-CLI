@@ -17,7 +17,7 @@ class CommandExecutor {
     this.logger = new Logger();
     this.errorHandler = new ErrorHandler();
     this.allowedCommands = new Set([
-      'cargo', 'rustc', 'rustup', 'node', 'npm', 'tar', 'curl', 'wget',
+      'cargo', 'cargo-zisk', 'ziskemu', 'rustc', 'rustup', 'node', 'npm', 'tar', 'curl', 'wget',
       'git', 'make', 'gcc', 'clang', 'mpirun', 'nvidia-smi'
     ]);
   }
@@ -124,7 +124,15 @@ class CommandExecutor {
   validateCommand(command) {
     const baseCommand = command.split(' ')[0];
     
-    if (!this.allowedCommands.has(baseCommand)) {
+    // Extract just the command name from full path
+    const commandName = path.basename(baseCommand);
+    
+    // Check if the command name is allowed
+    if (!this.allowedCommands.has(commandName)) {
+      // Special case for cargo-zisk binary
+      if (commandName === 'cargo-zisk') {
+        return; // Allow cargo-zisk binary
+      }
       throw new Error(`Command not allowed: ${baseCommand}`);
     }
   }
