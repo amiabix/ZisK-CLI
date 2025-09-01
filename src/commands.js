@@ -35,10 +35,8 @@ async function initCommand(options) {
     const targetDir = process.cwd();
     const projectName = options.name || 'zisk-project';
     
-    console.log('DEBUG: Checking for existing ZisK project...');
     // Check if this is an existing ZisK project
     const isExistingProject = await checkExistingZiskProject(targetDir);
-    console.log('DEBUG: isExistingProject =', isExistingProject);
     
     if (isExistingProject) {
       console.log('Detected existing ZisK project. Adding configuration and tooling...');
@@ -71,41 +69,72 @@ async function buildCommand(options) {
   const spinner = ora('Building ZISK program...').start();
   
   try {
-    // Validate project structure
-    await validateProjectStructure();
+    // Check if this is a basic Rust project or ZisK project
+    const isBasicProject = await checkBasicRustProject();
     
-    // Build program using cargo-zisk build
-    const profile = options.profile || 'release';
-    const buildArgs = ['build'];
-    
-    if (profile === 'release') {
-      buildArgs.push('--release');
+    if (isBasicProject) {
+      // Build using standard cargo
+      const profile = options.profile || 'release';
+      const buildArgs = ['build'];
+      
+      if (profile === 'release') {
+        buildArgs.push('--release');
+      }
+      
+      if (options.features) {
+        buildArgs.push('--features', options.features);
+      }
+      
+      if (options.target) {
+        buildArgs.push('--target', options.target);
+      }
+      
+      console.log('Building basic Rust project with cargo...');
+      const buildResult = await executor.executeCommand('cargo', buildArgs, {
+        cwd: process.cwd()
+      });
+      
+      spinner.succeed('Build completed successfully');
+      
+      // Display build information
+      displayBasicBuildInfo(buildResult);
+      
+      return { ...buildResult, type: 'basic' };
+      
+    } else {
+      // Build using cargo-zisk
+      const profile = options.profile || 'release';
+      const buildArgs = ['build'];
+      
+      if (profile === 'release') {
+        buildArgs.push('--release');
+      }
+      
+      if (options.features) {
+        buildArgs.push('--features', options.features);
+      }
+      
+      if (options.target) {
+        buildArgs.push('--target', options.target);
+      }
+      
+      const buildResult = await executor.executeCargoZisk('build', buildArgs, {
+        cwd: process.cwd()
+      });
+      
+      spinner.succeed('Build completed successfully');
+      
+      // Verify ELF file was created
+      const elfPath = getExpectedElfPath(profile);
+      if (!fs.existsSync(elfPath)) {
+        throw new Error(`ELF file not found at expected path: ${elfPath}`);
+      }
+      
+      // Display build information
+      displayBuildInfo(buildResult, elfPath);
+      
+      return { ...buildResult, elfPath };
     }
-    
-    if (options.features) {
-      buildArgs.push('--features', options.features);
-    }
-    
-    if (options.target) {
-      buildArgs.push('--target', options.target);
-    }
-    
-    const buildResult = await executor.executeCargoZisk('build', buildArgs, {
-      cwd: process.cwd()
-    });
-    
-    spinner.succeed('Build completed successfully');
-    
-    // Verify ELF file was created
-    const elfPath = getExpectedElfPath(profile);
-    if (!fs.existsSync(elfPath)) {
-      throw new Error(`ELF file not found at expected path: ${elfPath}`);
-    }
-    
-    // Display build information
-    displayBuildInfo(buildResult, elfPath);
-    
-    return { ...buildResult, elfPath };
     
   } catch (error) {
     spinner.fail('Build failed');
@@ -122,53 +151,79 @@ async function runCommand(options) {
   const spinner = ora('Running ZISK pipeline...').start();
   
   try {
-    // Step 1: Convert inputs to binary format
-    spinner.text = 'Converting inputs...';
-    const inputFiles = await getInputFiles(options);
-    const convertedInputs = await convertInputs(inputFiles, options);
+    // Check if this is a basic Rust project
+    const isBasicProject = await checkBasicRustProject();
     
-    // Step 2: Build the program
-    spinner.text = 'Building program...';
-    const buildResult = await buildCommand(options);
-    
-    // Step 3: Setup ROM (if needed)
-    if (!options.skipSetup) {
-      spinner.text = 'Setting up ROM...';
-      await setupROM(buildResult.elfPath, options);
+    if (isBasicProject) {
+      // Run basic Rust project
+      spinner.text = 'Building and running basic Rust project...';
+      
+      // Build the project
+      const buildResult = await buildCommand(options);
+      
+      // Run the project
+      spinner.text = 'Running program...';
+      const runResult = await executor.executeCommand('cargo', ['run', '--release'], {
+        cwd: process.cwd()
+      });
+      
+      spinner.succeed('Program executed successfully');
+      
+      console.log('\nProgram output:');
+      console.log(runResult.stdout || 'No output');
+      
+      return { type: 'basic', build: buildResult, run: runResult };
+      
+    } else {
+      // Run ZisK pipeline
+      // Step 1: Convert inputs to binary format
+      spinner.text = 'Converting inputs...';
+      const inputFiles = await getInputFiles(options);
+      const convertedInputs = await convertInputs(inputFiles, options);
+      
+      // Step 2: Build the program
+      spinner.text = 'Building program...';
+      const buildResult = await buildCommand(options);
+      
+      // Step 3: Setup ROM (if needed)
+      if (!options.skipSetup) {
+        spinner.text = 'Setting up ROM...';
+        await setupROM(buildResult.elfPath, options);
+      }
+      
+      // Step 4: Execute program
+      spinner.text = 'Executing program...';
+      const executionResults = [];
+      
+      for (const input of convertedInputs) {
+        const result = await executeSingleInput(input, buildResult.elfPath, options);
+        executionResults.push(result);
+      }
+      
+      // Step 5: Generate proofs (if not skipped)
+      let proofResults = [];
+      if (!options.skipProve) {
+        spinner.text = 'Generating proofs...';
+        proofResults = await generateProofs(convertedInputs, buildResult.elfPath, options);
+      }
+      
+      spinner.succeed('Pipeline completed successfully');
+      
+      // Display comprehensive results
+      displayPipelineResults({
+        inputs: convertedInputs,
+        build: buildResult,
+        execution: executionResults,
+        proofs: proofResults
+      });
+      
+      return {
+        inputs: convertedInputs,
+        build: buildResult,
+        execution: executionResults,
+        proofs: proofResults
+      };
     }
-    
-    // Step 4: Execute program
-    spinner.text = 'Executing program...';
-    const executionResults = [];
-    
-    for (const input of convertedInputs) {
-      const result = await executeSingleInput(input, buildResult.elfPath, options);
-      executionResults.push(result);
-    }
-    
-    // Step 5: Generate proofs (if not skipped)
-    let proofResults = [];
-    if (!options.skipProve) {
-      spinner.text = 'Generating proofs...';
-      proofResults = await generateProofs(convertedInputs, buildResult.elfPath, options);
-    }
-    
-    spinner.succeed('Pipeline completed successfully');
-    
-    // Display comprehensive results
-    displayPipelineResults({
-      inputs: convertedInputs,
-      build: buildResult,
-      execution: executionResults,
-      proofs: proofResults
-    });
-    
-    return {
-      inputs: convertedInputs,
-      build: buildResult,
-      execution: executionResults,
-      proofs: proofResults
-    };
     
   } catch (error) {
     spinner.fail('Pipeline failed');
@@ -702,6 +757,35 @@ async function checkExistingZiskProject(targetDir) {
   } catch (error) {
     return false;
   }
+}
+
+/**
+ * Check if current directory is a basic Rust project
+ */
+async function checkBasicRustProject() {
+  const cargoTomlPath = path.join(process.cwd(), 'Cargo.toml');
+  
+  if (!fs.existsSync(cargoTomlPath)) {
+    return false;
+  }
+  
+  try {
+    const cargoContent = await fs.readFile(cargoTomlPath, 'utf8');
+    // Check if it's a basic Rust project (not ZisK-specific)
+    return !cargoContent.includes('zisk') && !cargoContent.includes('cargo-zisk');
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Display basic build information
+ */
+function displayBasicBuildInfo(buildResult) {
+  console.log('\nBuild completed successfully!');
+  console.log('Output binary available in: target/release/');
+  console.log('Run with: cargo run --release');
+  console.log('Or execute directly: ./target/release/[project-name]');
 }
 
 /**
