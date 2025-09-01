@@ -278,9 +278,8 @@ class PlatformManager {
   getBuildFlags() {
     const flags = [];
 
-    if (this.platform.isMacOS) {
-      flags.push('--emulator');
-    }
+    // Note: --emulator flag is not supported by cargo-zisk build
+    // Platform-specific execution mode is handled elsewhere
 
     if (this.capabilities.gpuSupport) {
       flags.push('--features', 'gpu');
