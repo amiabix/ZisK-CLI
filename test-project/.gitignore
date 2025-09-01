@@ -1,0 +1,29 @@
+# ZISK build artifacts
+.zisk-build/
+target/
+build/
+
+# Output files
+outputs/
+proofs/
+
+# Logs
+*.log
+logs/
+
+# Node modules
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp

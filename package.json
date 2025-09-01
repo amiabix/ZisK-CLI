@@ -1,0 +1,98 @@
+{
+  "name": "@abix/zisk-dev-cli",
+  "version": "1.0.2",
+  "description": "A personal CLI tool for ZisK zkVM development testing and learning purposes. This is NOT an official ZisK tool - for production use, please refer to the official ZisK documentation. This tool automates basic ZisK workflows for educational and testing purposes only.",
+  "main": "src/index.js",
+  "bin": {
+    "zisk-dev-cli": "./bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "templates/",
+    "docs/",
+    "scripts/"
+  ],
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "keywords": [
+    "zisk",
+    "zkvm",
+    "zero-knowledge",
+    "blockchain",
+    "cryptography",
+    "cli",
+    "rust",
+    "proof-generation",
+    "zk-proofs",
+    "polygon",
+    "hermez",
+    "development-tools",
+    "project-scaffolding",
+    "automation",
+    "testing",
+    "learning",
+    "educational",
+    "personal-project",
+    "non-official"
+  ],
+  "author": {
+    "name": "Abix",
+    "email": "abix@example.com",
+    "url": "https://github.com/abix"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^9.4.0",
+    "fs-extra": "^11.1.0",
+    "chokidar": "^3.5.3",
+    "glob": "^8.0.3",
+    "js-yaml": "^4.1.0",
+    "winston": "^3.8.0",
+    "cosmiconfig": "^8.0.0",
+    "inquirer": "^9.1.0",
+    "ora": "^6.1.2",
+    "chalk": "^5.2.0",
+    "semver": "^7.5.0",
+    "node-fetch": "^3.3.0"
+  },
+  "devDependencies": {
+    "jest": "^29.5.0",
+    "eslint": "^8.40.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^13.2.0"
+  },
+  "scripts": {
+    "test": "jest",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:e2e": "jest tests/e2e",
+    "lint": "eslint src/ bin/",
+    "prepare": "husky install"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abix/zisk-dev-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/abix/zisk-dev-cli/issues"
+  },
+  "homepage": "https://github.com/abix/zisk-dev-cli#readme",
+  "documentation": "https://0xpolygonhermez.github.io/zisk/getting_started/writing_programs.html",
+  "contributors": [
+    {
+      "name": "Abix",
+      "email": "abix@example.com"
+    }
+  ]
+}
