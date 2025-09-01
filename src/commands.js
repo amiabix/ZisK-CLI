@@ -35,8 +35,10 @@ async function initCommand(options) {
     const targetDir = process.cwd();
     const projectName = options.name || 'zisk-project';
     
+    console.log('DEBUG: Checking for existing ZisK project...');
     // Check if this is an existing ZisK project
     const isExistingProject = await checkExistingZiskProject(targetDir);
+    console.log('DEBUG: isExistingProject =', isExistingProject);
     
     if (isExistingProject) {
       console.log('Detected existing ZisK project. Adding configuration and tooling...');
@@ -726,29 +728,143 @@ async function configureExistingProject(targetDir, options) {
 }
 
 /**
- * Create new ZisK project using cargo-zisk sdk new
+ * Create new ZisK project using cargo-zisk sdk new or fallback to basic structure
  */
 async function createNewZiskProject(targetDir, projectName, options) {
   // Check if cargo-zisk is installed
+  let useCargoZisk = false;
   try {
     await executor.executeCommand('cargo-zisk', ['--version'], { cwd: targetDir });
+    useCargoZisk = true;
   } catch (error) {
-    throw new Error('cargo-zisk is not installed. Please install it first: cargo install cargo-zisk');
+    console.log('cargo-zisk not found, creating basic ZisK project structure...');
   }
   
-  // Create new project using cargo-zisk sdk new
-  console.log(`Creating new ZisK project: ${projectName}`);
-  await executor.executeCommand('cargo-zisk', ['sdk', 'new', projectName], { cwd: targetDir });
-  
-  // Move into the created project directory
-  const projectDir = path.join(targetDir, projectName);
-  if (fs.existsSync(projectDir)) {
-    process.chdir(projectDir);
-    console.log(`Changed to project directory: ${projectName}`);
+  if (useCargoZisk) {
+    // Create new project using cargo-zisk sdk new
+    console.log(`Creating new ZisK project: ${projectName}`);
+    await executor.executeCommand('cargo-zisk', ['sdk', 'new', projectName], { cwd: targetDir });
+    
+    // Move into the created project directory
+    const projectDir = path.join(targetDir, projectName);
+    if (fs.existsSync(projectDir)) {
+      process.chdir(projectDir);
+      console.log(`Changed to project directory: ${projectName}`);
+    }
+  } else {
+    // Create basic ZisK project structure
+    console.log(`Creating basic ZisK project structure: ${projectName}`);
+    await createBasicZiskProject(targetDir, projectName);
   }
   
   // Add additional configuration and tooling
   await configureExistingProject(process.cwd(), options);
+}
+
+/**
+ * Create basic ZisK project structure when cargo-zisk is not available
+ */
+async function createBasicZiskProject(targetDir, projectName) {
+  const projectDir = path.join(targetDir, projectName);
+  await fs.ensureDir(projectDir);
+  
+  // Create basic Rust project structure
+  const basicStructure = {
+    'Cargo.toml': getBasicCargoToml(projectName),
+    'build.rs': getBasicBuildRs(),
+    'src/main.rs': getBasicMainRs(),
+    '.gitignore': getBasicGitignore()
+  };
+  
+  for (const [filePath, content] of Object.entries(basicStructure)) {
+    const fullPath = path.join(projectDir, filePath);
+    await fs.ensureDir(path.dirname(fullPath));
+    await fs.writeFile(fullPath, content, 'utf8');
+    console.log(`Created file: ${filePath}`);
+  }
+  
+  // Change to project directory
+  process.chdir(projectDir);
+  console.log(`Changed to project directory: ${projectName}`);
+}
+
+/**
+ * Get basic Cargo.toml content
+ */
+function getBasicCargoToml(projectName) {
+  return `[package]
+name = "${projectName}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Add ZisK dependencies when available
+# zisk = "0.1.0"
+
+[build-dependencies]
+# Add build dependencies when available
+`;
+}
+
+/**
+ * Get basic build.rs content
+ */
+function getBasicBuildRs() {
+  return `fn main() {
+    // Basic build script for ZisK project
+    // This will be enhanced when ZisK build tools are available
+    println!("cargo:rerun-if-changed=src/");
+}
+`;
+}
+
+/**
+ * Get basic main.rs content
+ */
+function getBasicMainRs() {
+  return `fn main() {
+    // Basic ZisK program template
+    // This will be enhanced when ZisK SDK is available
+    
+    println!("Hello, ZisK!");
+    
+    // Example: Simple computation that could be proven
+    let input = 42;
+    let result = input * 2;
+    
+    println!("Input: {}", input);
+    println!("Result: {}", result);
+    
+    // TODO: Add ZisK-specific code when SDK is available
+    // - Define computation to be proven
+    // - Generate proof
+    // - Verify proof
+}
+`;
+}
+
+/**
+ * Get basic .gitignore content
+ */
+function getBasicGitignore() {
+  return `# Rust
+target/
+Cargo.lock
+
+# ZisK specific
+*.zisk
+*.proof
+*.witness
+.zisk-build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+`;
 }
 
 /**
@@ -939,6 +1055,16 @@ function displayGettingStarted(targetDir, projectName) {
   console.log('  - docs/getting-started.md');
   console.log('     ');
   console.log('For help: zisk-dev --help\n');
+  
+  // Check if cargo-zisk is available
+  const { execSync } = require('child_process');
+  try {
+    execSync('cargo-zisk --version', { stdio: 'ignore' });
+  } catch (error) {
+    console.log('Note: cargo-zisk is not installed. This is normal for early ZisK development.');
+    console.log('When ZisK SDK becomes available, install it with: cargo install cargo-zisk');
+    console.log('For now, you can work with the basic project structure provided.\n');
+  }
 }
 
 async function validateProjectStructure() {
