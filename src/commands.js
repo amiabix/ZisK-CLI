@@ -96,7 +96,8 @@ async function buildCommand(options) {
       
       spinner.succeed('Build completed successfully');
       
-      // Display build information
+      // For basic Rust projects, we don't need to verify ELF files
+      // Just display build information
       displayBasicBuildInfo(buildResult);
       
       return { ...buildResult, type: 'basic' };
@@ -1174,9 +1175,24 @@ function displayBuildInfo(buildResult, elfPath) {
 
 function getExpectedElfPath(profile) {
   const { PlatformManager } = require('./platform');
+  const fs = require('fs-extra');
   const platform = new PlatformManager();
   const targetDir = profile === 'release' ? 'release' : 'debug';
-  return `target/riscv64ima-zisk-zkvm-elf/${targetDir}/sha_hasher`;
+  
+  // Read project name from Cargo.toml
+  let projectName = 'test-project'; // fallback
+  try {
+    const cargoToml = fs.readFileSync('Cargo.toml', 'utf8');
+    const nameMatch = cargoToml.match(/name\s*=\s*"([^"]+)"/);
+    if (nameMatch) {
+      projectName = nameMatch[1];
+    }
+  } catch (error) {
+    console.warn('Could not read Cargo.toml, using fallback project name');
+  }
+  
+  // For ZisK projects, the ELF file is in the riscv64ima-zisk-zkvm-elf target
+  return `target/riscv64ima-zisk-zkvm-elf/${targetDir}/${projectName}`;
 }
 
 async function setupROM(elfPath, options) {
