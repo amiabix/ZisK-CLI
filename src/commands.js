@@ -26,24 +26,25 @@ const converter = new InputConverter();
 const errorHandler = new ErrorHandler();
 
 /**
- * Initialize a new ZISK project
+ * Initialize a new ZISK project or configure existing one
  */
 async function initCommand(options) {
   console.log('Initializing ZISK project...');
   
   try {
-    const projectType = options.type || 'basic';
-    const projectName = options.name || 'zisk-project';
     const targetDir = process.cwd();
-
-    // Create project structure
-    await createProjectStructure(targetDir, projectType, projectName);
+    const projectName = options.name || 'zisk-project';
     
-    // Generate template files
-    await generateTemplateFiles(targetDir, projectType, projectName);
+    // Check if this is an existing ZisK project
+    const isExistingProject = await checkExistingZiskProject(targetDir);
     
-    // Initialize configuration
-    await createConfiguration(targetDir, options);
+    if (isExistingProject) {
+      console.log('Detected existing ZisK project. Adding configuration and tooling...');
+      await configureExistingProject(targetDir, options);
+    } else {
+      console.log('Creating new ZisK project...');
+      await createNewZiskProject(targetDir, projectName, options);
+    }
     
     // Verify system dependencies
     await runSystemCheck(false);
@@ -683,6 +684,106 @@ async function resetCommand(options) {
 }
 
 // Helper functions
+/**
+ * Check if current directory is an existing ZisK project
+ */
+async function checkExistingZiskProject(targetDir) {
+  const cargoTomlPath = path.join(targetDir, 'Cargo.toml');
+  
+  if (!fs.existsSync(cargoTomlPath)) {
+    return false;
+  }
+  
+  try {
+    const cargoContent = await fs.readFile(cargoTomlPath, 'utf8');
+    return cargoContent.includes('zisk') || cargoContent.includes('cargo-zisk');
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Configure existing ZisK project with additional tooling
+ */
+async function configureExistingProject(targetDir, options) {
+  // Add zisk-dev configuration
+  await createConfiguration(targetDir, options);
+  
+  // Create additional directories if they don't exist
+  const additionalDirs = ['inputs', 'outputs', 'docs', 'scripts'];
+  for (const dir of additionalDirs) {
+    const dirPath = path.join(targetDir, dir);
+    if (!fs.existsSync(dirPath)) {
+      await fs.ensureDir(dirPath);
+      console.log(`Created directory: ${dir}`);
+    }
+  }
+  
+  // Create example input files
+  await createExampleInputs(targetDir);
+  
+  console.log('Existing project configured successfully');
+}
+
+/**
+ * Create new ZisK project using cargo-zisk sdk new
+ */
+async function createNewZiskProject(targetDir, projectName, options) {
+  // Check if cargo-zisk is installed
+  try {
+    await executor.executeCommand('cargo-zisk', ['--version'], { cwd: targetDir });
+  } catch (error) {
+    throw new Error('cargo-zisk is not installed. Please install it first: cargo install cargo-zisk');
+  }
+  
+  // Create new project using cargo-zisk sdk new
+  console.log(`Creating new ZisK project: ${projectName}`);
+  await executor.executeCommand('cargo-zisk', ['sdk', 'new', projectName], { cwd: targetDir });
+  
+  // Move into the created project directory
+  const projectDir = path.join(targetDir, projectName);
+  if (fs.existsSync(projectDir)) {
+    process.chdir(projectDir);
+    console.log(`Changed to project directory: ${projectName}`);
+  }
+  
+  // Add additional configuration and tooling
+  await configureExistingProject(process.cwd(), options);
+}
+
+/**
+ * Create example input files
+ */
+async function createExampleInputs(targetDir) {
+  const inputsDir = path.join(targetDir, 'inputs');
+  await fs.ensureDir(inputsDir);
+  
+  // Example JSON input
+  const exampleJson = {
+    "number": 20,
+    "description": "Example input for SHA-256 hashing"
+  };
+  
+  await fs.writeFile(
+    path.join(inputsDir, 'example.json'),
+    JSON.stringify(exampleJson, null, 2),
+    'utf8'
+  );
+  
+  // Example YAML input
+  const exampleYaml = `number: 20
+description: Example input for SHA-256 hashing
+`;
+  
+  await fs.writeFile(
+    path.join(inputsDir, 'example.yaml'),
+    exampleYaml,
+    'utf8'
+  );
+  
+  console.log('Created example input files');
+}
+
 async function createProjectStructure(targetDir, projectType, projectName) {
   const { createProjectStructure } = require('./templates');
   return await createProjectStructure(targetDir, projectType, projectName);
