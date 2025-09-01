@@ -104,7 +104,7 @@ async function buildCommand(options) {
     } else {
       // Build using cargo-zisk
       const profile = options.profile || 'release';
-      const buildArgs = ['build'];
+      const buildArgs = [];
       
       if (profile === 'release') {
         buildArgs.push('--release');
