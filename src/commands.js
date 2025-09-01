@@ -795,8 +795,43 @@ async function generateTemplateFiles(targetDir, projectType, projectName) {
 }
 
 async function createConfiguration(targetDir, options) {
-  const { createConfiguration } = require('./templates');
-  return await createConfiguration(targetDir, options);
+  const config = {
+    project: {
+      name: options.name || 'zisk-project',
+      type: options.type || 'basic',
+      version: '1.0.0'
+    },
+    build: {
+      profile: 'release',
+      features: [],
+      target: null
+    },
+    execution: {
+      maxSteps: 1000000,
+      timeout: 30000,
+      parallel: false
+    },
+    inputs: {
+      defaultFormat: 'json',
+      autoConvert: true
+    },
+    outputs: {
+      saveProofs: true,
+      saveWitnesses: true,
+      saveLogs: true
+    },
+    logging: {
+      level: 'info',
+      verbose: false,
+      saveToFile: true
+    }
+  };
+  
+  const configPath = path.join(targetDir, 'zisk-dev.config.js');
+  const configContent = `module.exports = ${JSON.stringify(config, null, 2)};`;
+  await fs.writeFile(configPath, configContent, 'utf8');
+  
+  console.log(`Created configuration: zisk-dev.config.js`);
 }
 
 async function runSystemCheck(blocking) {
@@ -878,8 +913,32 @@ async function runSystemCheck(blocking) {
 }
 
 function displayGettingStarted(targetDir, projectName) {
-  const { displayGettingStarted } = require('./templates');
-  return displayGettingStarted(targetDir, projectName);
+  console.log(`\nProject "${projectName}" initialized successfully!\n`);
+  
+  console.log('Next steps:');
+  console.log('  1. Install ZISK dependencies:');
+  console.log('     $ zisk-dev install');
+  console.log('     ');
+  console.log('  2. Build your program:');
+  console.log('     $ zisk-dev build');
+  console.log('     ');
+  console.log('  3. Run your first ZISK program:');
+  console.log('     $ zisk-dev run');
+  console.log('     ');
+  console.log('  4. Check the outputs:');
+  console.log('     $ ls outputs/');
+  console.log('     ');
+  console.log('Development commands:');
+  console.log('  $ zisk-dev watch     # Watch for file changes');
+  console.log('  $ zisk-dev dev       # Development mode');
+  console.log('  $ zisk-dev test      # Run tests');
+  console.log('  $ zisk-dev doctor    # System diagnostics');
+  console.log('     ');
+  console.log('Documentation:');
+  console.log('  - README.md');
+  console.log('  - docs/getting-started.md');
+  console.log('     ');
+  console.log('For help: zisk-dev --help\n');
 }
 
 async function validateProjectStructure() {
