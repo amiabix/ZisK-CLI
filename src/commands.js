@@ -119,10 +119,15 @@ async function buildCommand(options) {
         buildArgs.push('--target', options.target);
       }
       
+      // Stop spinner temporarily to show command execution
+      spinner.stop();
+      
       const buildResult = await executor.executeCargoZisk('build', buildArgs, {
         cwd: process.cwd()
       });
       
+      // Restart spinner and show success
+      spinner.start('Build completed successfully');
       spinner.succeed('Build completed successfully');
       
       // Verify ELF file was created

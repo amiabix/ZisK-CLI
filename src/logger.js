@@ -168,9 +168,9 @@ class Logger {
    * Log command execution
    */
   logCommand(command, args = [], options = {}) {
-    // Show command execution on screen
-    console.log(`[COMMAND] Executing: ${command} ${args.join(' ')}`);
-    console.log(`[COMMAND] Working directory: ${process.cwd()}`);
+    // Show command execution on screen with immediate output
+    process.stdout.write(`\n[COMMAND] Executing: ${command} ${args.join(' ')}\n`);
+    process.stdout.write(`[COMMAND] Working directory: ${process.cwd()}\n`);
     
     this.debug('Executing command', {
       command,
@@ -187,16 +187,16 @@ class Logger {
   logCommandResult(command, result) {
     const { exitCode, stdout, stderr, duration } = result;
     
-    // Show command result on screen
-    console.log(`[RESULT] Command completed with exit code: ${exitCode}`);
-    console.log(`[RESULT] Duration: ${duration}ms`);
+    // Show command result on screen with immediate output
+    process.stdout.write(`[RESULT] Command completed with exit code: ${exitCode}\n`);
+    process.stdout.write(`[RESULT] Duration: ${duration}ms\n`);
     
     if (stdout && stdout.trim()) {
-      console.log(`[STDOUT] ${stdout}`);
+      process.stdout.write(`[STDOUT] ${stdout}\n`);
     }
     
     if (stderr && stderr.trim()) {
-      console.log(`[STDERR] ${stderr}`);
+      process.stdout.write(`[STDERR] ${stderr}\n`);
     }
     
     this.debug('Command completed', {
