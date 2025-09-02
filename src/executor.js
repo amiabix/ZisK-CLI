@@ -38,6 +38,7 @@ class CommandExecutor {
 
       // Prepare execution options
       const execOptions = this.prepareExecutionOptions(options);
+      execOptions.startTime = startTime; // Pass start time for duration calculation
 
       // Execute command
       const result = await this.runCommand(command, args, execOptions);
