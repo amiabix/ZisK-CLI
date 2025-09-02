@@ -40,8 +40,8 @@ class CommandExecutor {
       const execOptions = this.prepareExecutionOptions(options);
       execOptions.startTime = startTime; // Pass start time for duration calculation
 
-      // Execute command
-      const result = await this.runCommand(command, args, execOptions);
+      // Execute command with streaming output for better visibility
+      const result = await this.executeWithStreaming(command, args, execOptions);
 
       // Log command result
       this.logger.logCommandResult(command, result);
@@ -241,6 +241,7 @@ class CommandExecutor {
    */
   async executeWithStreaming(command, args = [], options = {}) {
     return new Promise((resolve, reject) => {
+      const startTime = options.startTime || Date.now();
       const child = spawn(command, args, {
         ...this.prepareExecutionOptions(options),
         stdio: ['inherit', 'pipe', 'pipe']
@@ -265,7 +266,8 @@ class CommandExecutor {
         const result = {
           exitCode: code,
           stdout: stdout.trim(),
-          stderr: stderr.trim()
+          stderr: stderr.trim(),
+          duration: Date.now() - startTime
         };
 
         if (code === 0) {
