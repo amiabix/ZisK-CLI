@@ -2128,9 +2128,10 @@ async function analyticsCommand(options) {
     
     // Check input files
     const inputDir = 'build';
+    let binFiles = [];
     if (await fs.pathExists(inputDir)) {
       const inputFiles = await fs.readdir(inputDir);
-      const binFiles = inputFiles.filter(f => f.endsWith('.bin'));
+      binFiles = inputFiles.filter(f => f.endsWith('.bin'));
       if (binFiles.length > 0) {
         console.log(chalk.blue('Input Files:'));
         console.log(`  Total: ${binFiles.length} files`);
