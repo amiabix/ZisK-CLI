@@ -168,9 +168,9 @@ class Logger {
    * Log command execution
    */
   logCommand(command, args = [], options = {}) {
-    // Show command execution on screen with immediate output
-    process.stdout.write(`\n[COMMAND] Executing: ${command} ${args.join(' ')}\n`);
-    process.stdout.write(`[COMMAND] Working directory: ${process.cwd()}\n`);
+    // Show command execution with clean formatting
+    const fullCommand = `${command} ${args.join(' ')}`;
+    process.stdout.write(`\n[RUNNING] ${fullCommand}\n`);
     
     this.debug('Executing command', {
       command,
@@ -187,16 +187,14 @@ class Logger {
   logCommandResult(command, result) {
     const { exitCode, stdout, stderr, duration } = result;
     
-    // Show command result on screen with immediate output
-    process.stdout.write(`[RESULT] Command completed with exit code: ${exitCode}\n`);
-    process.stdout.write(`[RESULT] Duration: ${duration}ms\n`);
+    // Show command result with clean formatting
+    const status = exitCode === 0 ? '[SUCCESS]' : '[FAILED]';
+    process.stdout.write(`\n${status} Completed in ${duration}ms\n`);
     
-    if (stdout && stdout.trim()) {
-      process.stdout.write(`[STDOUT] ${stdout}\n`);
-    }
-    
-    if (stderr && stderr.trim()) {
-      process.stdout.write(`[STDERR] ${stderr}\n`);
+    // Don't show stdout again since it was already streamed during execution
+    // Only show stderr if there are actual errors
+    if (stderr && stderr.trim() && !stderr.includes('Compiling') && !stderr.includes('Finished')) {
+      process.stdout.write(`  Errors: ${stderr}\n`);
     }
     
     this.debug('Command completed', {

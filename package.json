@@ -1,17 +1,31 @@
 {
   "name": "@abix/zisk-dev-cli",
-  "version": "1.0.16",
-  "description": "A personal CLI tool for ZisK zkVM development testing and learning purposes. This is NOT an official ZisK tool - for production use, please refer to the official ZisK documentation. This tool automates basic ZisK workflows for educational and testing purposes only.",
+  "version": "1.1.1",
+  "description": "A comprehensive CLI tool for ZisK zkVM development with full macOS support. Features project initialization, building, execution, proof generation, environment diagnostics, and project management. This is a personal tool for testing and learning - not an official ZisK product.",
   "main": "src/index.js",
   "bin": {
-    "zisk-dev-cli": "./bin/cli.js"
+    "zisk-dev": "./bin/cli.js",
+    "zisk-welcome": "./bin/welcome.js"
   },
   "files": [
     "bin/",
     "src/",
-    "templates/",
-    "docs/",
     "scripts/"
+  ],
+  "keywords": [
+    "zisk",
+    "zkvm",
+    "zero-knowledge",
+    "zk-proofs",
+    "rust",
+    "cli",
+    "development",
+    "macos",
+    "linux",
+    "cargo-zisk",
+    "ziskemu",
+    "proving",
+    "verification"
   ],
   "engines": {
     "node": ">=16.0.0",
@@ -55,31 +69,30 @@
   "dependencies": {
     "commander": "^9.4.0",
     "fs-extra": "^11.1.0",
-    "chokidar": "^3.5.3",
     "glob": "^8.0.3",
-    "js-yaml": "^4.1.0",
     "winston": "^3.8.0",
-    "cosmiconfig": "^8.0.0",
     "inquirer": "^9.1.0",
     "ora": "^6.1.2",
-    "chalk": "^5.2.0",
-    "semver": "^7.5.0",
-    "node-fetch": "^3.3.0"
-  },
-  "devDependencies": {
-    "jest": "^29.5.0",
-    "eslint": "^8.40.0",
-    "husky": "^8.0.3",
-    "lint-staged": "^13.2.0"
+    "chalk": "^4.1.2",
+    "js-yaml": "^4.1.0",
+    "chokidar": "^3.5.3"
   },
   "scripts": {
-    "test": "jest",
-    "test:unit": "jest tests/unit",
-    "test:integration": "jest tests/integration",
-    "test:e2e": "jest tests/e2e",
-    "lint": "eslint src/ bin/",
-    "prepare": "husky install"
+    "postinstall": "node scripts/postinstall.js"
   },
+  "features": [
+    "Project initialization with cargo-zisk sdk new",
+    "Complete ZisK pipeline (build, execute, prove)",
+    "Full macOS support for proving and verification",
+    "Environment diagnostics and health checks",
+    "Project status monitoring and management",
+    "Build artifact cleanup and management",
+    "Real-time command execution with streaming output",
+    "Comprehensive error handling and recovery",
+    "Input file conversion and management",
+    "Proof generation and verification",
+    "Interactive project setup and configuration"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/abix/zisk-dev-cli.git"

@@ -1,0 +1,31 @@
+# ZisK Project Configuration
+PROJECT_NAME=sha_hasher
+PROJECT_TYPE=zisk
+PROJECT_VERSION=1.0.0
+
+# Build Configuration
+BUILD_PROFILE=release
+BUILD_FEATURES=
+BUILD_TARGET=
+
+# Execution Configuration
+EXECUTION_MAX_STEPS=1000000
+EXECUTION_TIMEOUT=30000
+EXECUTION_PARALLEL=false
+
+# Input Configuration
+INPUT_DEFAULT_FORMAT=binary
+INPUT_AUTO_CONVERT=true
+INPUT_CUSTOM_NAMES=true
+INPUT_DEFAULT_FILE=input.bin
+
+# Output Configuration
+OUTPUT_SAVE_PROOFS=true
+OUTPUT_SAVE_WITNESSES=true
+OUTPUT_SAVE_LOGS=true
+OUTPUT_DIRECTORY=outputs
+
+# Logging Configuration
+LOG_LEVEL=info
+LOG_VERBOSE=false
+LOG_SAVE_TO_FILE=true

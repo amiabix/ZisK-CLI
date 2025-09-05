@@ -5,7 +5,6 @@
 
 const fs = require('fs-extra');
 const path = require('path');
-const cosmiconfig = require('cosmiconfig');
 const { PlatformManager } = require('./platform');
 
 class ConfigurationManager {
@@ -47,16 +46,11 @@ class ConfigurationManager {
   }
 
   /**
-   * Load configuration from cosmiconfig
+   * Load configuration from cosmiconfig (disabled)
    */
   loadFromCosmiconfig() {
-    try {
-      const explorer = cosmiconfig('zisk-dev');
-      const result = explorer.searchSync();
-      return result ? result.config : null;
-    } catch {
-      return null;
-    }
+    // Cosmiconfig support removed for simplicity
+    return null;
   }
 
   /**

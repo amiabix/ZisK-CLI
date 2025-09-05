@@ -25,34 +25,232 @@ const executor = new CommandExecutor();
 const converter = new InputConverter();
 const errorHandler = new ErrorHandler();
 
+// Doctor command implementation moved to the main doctorCommand function below
+
+/**
+ * Status command - Show current project status
+ */
+async function statusCommand() {
+  console.log(chalk.blue('ZisK Project Status\n'));
+  
+  try {
+    // Check if we're in a ZisK project
+    if (!await fs.pathExists('.zisk-env')) {
+      console.log(chalk.red('Not in a ZisK project directory'));
+      console.log(chalk.yellow('Run "zisk-dev init --name <project-name>" to initialize a project'));
+      return;
+    }
+    
+    // Read project info
+    const envContent = await fs.readFile('.zisk-env', 'utf8');
+    const projectName = envContent.match(/PROJECT_NAME=(.+)/)?.[1];
+    const buildProfile = envContent.match(/BUILD_PROFILE=(.+)/)?.[1] || 'release';
+    
+    console.log(chalk.green(`Project: ${projectName}`));
+    console.log(chalk.green(`Build Profile: ${buildProfile}`));
+    
+    // Check build status
+    const elfPath = `target/riscv64ima-zisk-zkvm-elf/${buildProfile}/${projectName}`;
+    if (await fs.pathExists(elfPath)) {
+      const stats = await fs.stat(elfPath);
+      console.log(chalk.green(`Built: ${stats.mtime.toLocaleString()}`));
+    } else {
+      console.log(chalk.yellow('Not built yet'));
+    }
+    
+    // Check input files
+    const inputDir = 'build';
+    if (await fs.pathExists(inputDir)) {
+      const inputFiles = await fs.readdir(inputDir);
+      const binFiles = inputFiles.filter(f => f.endsWith('.bin'));
+      if (binFiles.length > 0) {
+        console.log(chalk.green(`Input files: ${binFiles.length} found`));
+        binFiles.forEach(file => {
+          console.log(chalk.gray(`  - ${file}`));
+        });
+      } else {
+        console.log(chalk.yellow('No input files found in build/'));
+      }
+    } else {
+      console.log(chalk.yellow('No build directory found'));
+    }
+    
+    // Check proof files
+    const proofDir = 'proofs';
+    if (await fs.pathExists(proofDir)) {
+      const proofFiles = await fs.readdir(proofDir);
+      if (proofFiles.length > 0) {
+        console.log(chalk.green(`Proof files: ${proofFiles.length} found`));
+      } else {
+        console.log(chalk.yellow('No proof files found'));
+      }
+    } else {
+      console.log(chalk.yellow('No proofs directory found'));
+    }
+    
+    // Show next steps
+    console.log(chalk.blue('\nNext steps:'));
+    if (!await fs.pathExists(elfPath)) {
+      console.log(chalk.blue('  - zisk-dev build'));
+    } else if (!await fs.pathExists('build/input.bin')) {
+      console.log(chalk.blue('  - Create input files in build/ directory'));
+    } else {
+      console.log(chalk.blue('  - zisk-dev run (build + execute)'));
+      console.log(chalk.blue('  - zisk-dev prove (generate proofs)'));
+    }
+    
+  } catch (error) {
+    console.error(chalk.red('Status command failed:'), error.message);
+  }
+}
+
+/**
+ * Clean command - Clean build artifacts
+ */
+async function cleanCommand(options) {
+  const spinner = ora('Cleaning build artifacts...').start();
+  
+  try {
+    const dirsToClean = [
+      'target',
+      'build',
+      'proofs',
+      'tmp'
+    ];
+    
+    let cleanedCount = 0;
+    
+    for (const dir of dirsToClean) {
+      if (await fs.pathExists(dir)) {
+        if (options.force || options.all) {
+          await fs.remove(dir);
+          cleanedCount++;
+        } else {
+          // Ask for confirmation for each directory
+          const { confirm } = await inquirer.prompt([{
+            type: 'confirm',
+            name: 'confirm',
+            message: `Remove ${dir}/ directory?`,
+            default: false
+          }]);
+          
+          if (confirm) {
+            await fs.remove(dir);
+            cleanedCount++;
+          }
+        }
+      }
+    }
+    
+    spinner.succeed(`Cleaned ${cleanedCount} directory(ies)`);
+    
+    if (cleanedCount === 0) {
+      console.log(chalk.yellow('No directories to clean'));
+    } else {
+      console.log(chalk.green('Build artifacts cleaned successfully'));
+    }
+    
+  } catch (error) {
+    spinner.fail('Clean failed');
+    console.error(chalk.red('Clean command failed:'), error.message);
+  }
+}
+
 /**
  * Initialize a new ZISK project or configure existing one
  */
 async function initCommand(options) {
-  console.log('Initializing ZISK project...');
+  console.log('Initializing ZisK project...');
   
   try {
     const targetDir = process.cwd();
-    const projectName = options.name || 'zisk-project';
+    const projectName = options.name;
     
-    // Check if this is an existing ZisK project
-    const isExistingProject = await checkExistingZiskProject(targetDir);
-    
-    if (isExistingProject) {
-      console.log('Detected existing ZisK project. Adding configuration and tooling...');
-      await configureExistingProject(targetDir, options);
-    } else {
-      console.log('Creating new ZisK project...');
-      await createNewZiskProject(targetDir, projectName, options);
+    if (!projectName) {
+              throw new Error('Project name is required. Use: zisk-dev init --name <project-name>');
     }
     
-    // Verify system dependencies
-    await runSystemCheck(false);
+    console.log(`Creating ZisK project: ${projectName}`);
     
-    console.log('Project initialized successfully');
+    // Check if cargo-zisk is available
+    try {
+      await executor.executeCommand('cargo-zisk', ['--version'], { cwd: targetDir });
+    } catch (error) {
+      throw new Error('cargo-zisk is not installed. Please install ZisK first: https://0xpolygonhermez.github.io/zisk/getting_started/installation.html');
+    }
     
-    // Display getting started information
-    displayGettingStarted(targetDir, projectName);
+    // Create new project using cargo-zisk sdk new (following official ZisK docs)
+    console.log(`Running: cargo-zisk sdk new ${projectName}`);
+    await executor.executeCommand('cargo-zisk', ['sdk', 'new', projectName], { cwd: targetDir });
+    
+    // Change to project directory
+    const projectDir = path.join(targetDir, projectName);
+    if (fs.existsSync(projectDir)) {
+      process.chdir(projectDir);
+      console.log(`Changed to project directory: ${projectName}`);
+    } else {
+      throw new Error(`Project directory not created: ${projectDir}`);
+    }
+    
+    // Read actual package name from Cargo.toml
+    let actualProjectName = projectName;
+    const cargoTomlPath = path.join(process.cwd(), 'Cargo.toml');
+    if (fs.existsSync(cargoTomlPath)) {
+      try {
+        const cargoContent = await fs.readFile(cargoTomlPath, 'utf8');
+        const nameMatch = cargoContent.match(/name\s*=\s*"([^"]+)"/);
+        if (nameMatch) {
+          actualProjectName = nameMatch[1];
+          console.log(`Using package name from Cargo.toml: ${actualProjectName}`);
+        }
+      } catch (error) {
+        console.warn('Could not read Cargo.toml for package name, using directory name');
+      }
+    }
+    
+    // Create .zisk-env file to store project name for future commands
+    const envContent = `# ZisK Project Configuration
+PROJECT_NAME=${actualProjectName}
+PROJECT_TYPE=zisk
+PROJECT_VERSION=1.0.0
+
+# Build Configuration
+BUILD_PROFILE=release
+BUILD_FEATURES=
+BUILD_TARGET=
+
+# Execution Configuration
+EXECUTION_MAX_STEPS=1000000
+EXECUTION_TIMEOUT=30000
+EXECUTION_PARALLEL=false
+
+# Input Configuration
+INPUT_DEFAULT_FORMAT=binary
+INPUT_AUTO_CONVERT=true
+INPUT_CUSTOM_NAMES=true
+INPUT_DEFAULT_FILE=input.bin
+
+# Output Configuration
+OUTPUT_SAVE_PROOFS=true
+OUTPUT_SAVE_WITNESSES=true
+OUTPUT_SAVE_LOGS=true
+OUTPUT_DIRECTORY=outputs
+
+# Logging Configuration
+LOG_LEVEL=info
+LOG_VERBOSE=false
+LOG_SAVE_TO_FILE=true
+`;
+    
+    await fs.writeFile('.zisk-env', envContent, 'utf8');
+    console.log('Created .zisk-env configuration file');
+    
+    console.log('Project initialized successfully!');
+    console.log(`\nNext steps:`);
+    console.log(`1. Edit src/main.rs to write your ZisK program`);
+    console.log(`2. Create input.bin file with your input data`);
+    console.log(`3. Run: zisk-dev build`);
+    console.log(`4. Run: zisk-dev run`);
     
   } catch (error) {
     console.error('Failed to initialize project:', error.message);
@@ -69,12 +267,15 @@ async function buildCommand(options) {
   const spinner = ora('Building ZISK program...').start();
   
   try {
+    // Load configuration from .zisk-env file
+    const config = await loadProjectConfig(process.cwd());
+    
     // Check if this is a basic Rust project or ZisK project
     const isBasicProject = await checkBasicRustProject();
     
     if (isBasicProject) {
       // Build using standard cargo
-      const profile = options.profile || 'release';
+      const profile = options.profile || config?.BUILD_PROFILE || 'release';
       const buildArgs = ['build'];
       
       if (profile === 'release') {
@@ -104,7 +305,7 @@ async function buildCommand(options) {
       
     } else {
       // Build using cargo-zisk
-      const profile = options.profile || 'release';
+      const profile = options.profile || config?.BUILD_PROFILE || 'release';
       const buildArgs = [];
       
       if (profile === 'release') {
@@ -131,7 +332,7 @@ async function buildCommand(options) {
       spinner.succeed('Build completed successfully');
       
       // Verify ELF file was created
-      const elfPath = getExpectedElfPath(profile);
+      const elfPath = await getExpectedElfPath(profile);
       if (!fs.existsSync(elfPath)) {
         throw new Error(`ELF file not found at expected path: ${elfPath}`);
       }
@@ -191,7 +392,7 @@ async function runCommand(options) {
       spinner.text = 'Building program...';
       const buildResult = await buildCommand(options);
       
-      // Step 3: Setup ROM (if needed)
+      // Step 3: Setup ROM (if needed and supported)
       if (!options.skipSetup) {
         spinner.text = 'Setting up ROM...';
         await setupROM(buildResult.elfPath, options);
@@ -306,6 +507,21 @@ async function proveCommand(options) {
   const spinner = ora('Generating zero-knowledge proof...').start();
   
   try {
+    // Check system memory before starting proof generation
+    const { PlatformManager } = require('./platform');
+    const platform = new PlatformManager();
+    const resources = platform.getSystemResources();
+    
+    // Memory requirements for proof generation (based on ZisK documentation)
+    const minMemoryRequired = 8 * 1024 * 1024 * 1024; // 8GB
+    const recommendedMemory = 16 * 1024 * 1024 * 1024; // 16GB
+    
+    if (resources.memory.free < minMemoryRequired) {
+      console.log(chalk.yellow(`\n⚠️  Warning: Low memory available (${Math.round(resources.memory.free / 1024 / 1024 / 1024)}GB free)`));
+      console.log(chalk.yellow(`   Proof generation requires at least ${Math.round(minMemoryRequired / 1024 / 1024 / 1024)}GB`));
+      console.log(chalk.yellow(`   Recommended: ${Math.round(recommendedMemory / 1024 / 1024 / 1024)}GB`));
+    }
+    
     // Get input files
     const inputFiles = await getInputFiles(options);
     
@@ -317,10 +533,10 @@ async function proveCommand(options) {
     
     for (const input of convertedInputs) {
       // Follow the ZisK documentation proving process
-      const proveArgs = ['prove'];
+      const proveArgs = [];
       
       // Add ELF file path
-      const elfPath = getExpectedElfPath(options.profile || 'release');
+      const elfPath = await getExpectedElfPath(options.profile || 'release');
       proveArgs.push('-e', elfPath);
       
       // Add input file
@@ -433,41 +649,51 @@ async function verifyCommand(options) {
  * Clean build artifacts and temporary files
  */
 async function cleanCommand(options) {
-  const spinner = ora('Cleaning project...').start();
+  const spinner = ora('Cleaning build artifacts...').start();
   
   try {
-    const cleaned = [];
+    const dirsToClean = [
+      'target',
+      'build',
+      'proofs',
+      'tmp'
+    ];
     
-    if (options.all || options.builds) {
-      // Clean build artifacts
-      const buildDirs = ['.zisk-build', 'target'];
-      for (const dir of buildDirs) {
-        if (await fs.pathExists(dir)) {
+    let cleanedCount = 0;
+    
+    for (const dir of dirsToClean) {
+      if (await fs.pathExists(dir)) {
+        if (options.force || options.all) {
           await fs.remove(dir);
-          cleaned.push(dir);
+          cleanedCount++;
+        } else {
+          // Ask for confirmation for each directory
+          const { confirm } = await inquirer.prompt([{
+            type: 'confirm',
+            name: 'confirm',
+            message: `Remove ${dir}/ directory?`,
+            default: false
+          }]);
+          
+          if (confirm) {
+            await fs.remove(dir);
+            cleanedCount++;
+          }
         }
       }
     }
     
-    if (options.all || options.outputs) {
-      // Clean output files
-      const outputDirs = ['outputs', 'proofs'];
-      for (const dir of outputDirs) {
-        if (await fs.pathExists(dir)) {
-          await fs.remove(dir);
-          cleaned.push(dir);
-        }
-      }
+    spinner.succeed(`Cleaned ${cleanedCount} directory(ies)`);
+    
+    if (cleanedCount === 0) {
+      console.log(chalk.yellow('No directories to clean'));
+    } else {
+      console.log(chalk.green('Build artifacts cleaned successfully'));
     }
-    
-    spinner.succeed(`Cleaned ${cleaned.length} directories`);
-    
-    return { cleaned };
     
   } catch (error) {
     spinner.fail('Clean failed');
-    await errorHandler.handleError(error, { name: 'clean' }, options);
-    throw error;
+    console.error(chalk.red('Clean command failed:'), error.message);
   }
 }
 
@@ -555,35 +781,109 @@ async function testCommand(options) {
  * System health check and diagnostics
  */
 async function doctorCommand(options) {
-  const spinner = ora('Running system diagnostics...').start();
+  console.log('ZisK Doctor - Diagnosing your environment...\n');
+  
+  const issues = [];
+  const recommendations = [];
   
   try {
-    const diagnostics = new SystemDiagnostics(options);
+    // Check ZisK installation
+    console.log('Checking ZisK installation...');
+    try {
+      const versionResult = await executor.executeCommand('cargo-zisk', ['--version']);
+      const version = versionResult.stdout.trim();
+      console.log(chalk.green(`ZisK installed: ${version}`));
+      
+      // Check if it's a recent version
+      if (version.includes('0.11.0') || version.includes('0.10.')) {
+        console.log(chalk.green('Recent ZisK version detected'));
+      } else {
+        issues.push('ZisK version may be outdated');
+        recommendations.push('Consider updating ZisK: ziskup');
+      }
+    } catch (error) {
+      issues.push('ZisK not found in PATH');
+      recommendations.push('Install ZisK: https://0xpolygonhermez.github.io/zisk/getting_started/installation.html');
+    }
     
-    const checks = [
-      diagnostics.checkNodeEnvironment(),
-      diagnostics.checkSystemDependencies(),
-      diagnostics.checkZiskInstallation(),
-      diagnostics.checkPlatformCapabilities(),
-      diagnostics.checkResourceAvailability(),
-      diagnostics.checkNetworkConnectivity(),
-      diagnostics.validateProjectStructure()
-    ];
+    // Check Rust toolchain
+    console.log('\nChecking Rust toolchain...');
+    try {
+      const rustResult = await executor.executeCommand('rustc', ['--version']);
+      console.log(chalk.green(`Rust installed: ${rustResult.stdout.trim()}`));
+    } catch (error) {
+      issues.push('Rust not found');
+      recommendations.push('Install Rust: https://rustup.rs/');
+    }
     
-    const results = await Promise.allSettled(checks);
+    // Check ZisK toolchain
+    console.log('\nChecking ZisK Rust toolchain...');
+    try {
+      const ziskToolchainResult = await executor.executeCommand('rustup', ['show']);
+      if (ziskToolchainResult.stdout.includes('zisk')) {
+        console.log(chalk.green('ZisK Rust toolchain installed'));
+      } else {
+        issues.push('ZisK Rust toolchain not found');
+        recommendations.push('Install ZisK toolchain: ziskup');
+      }
+    } catch (error) {
+      issues.push('Could not check ZisK toolchain');
+    }
     
-    spinner.succeed('Diagnostics completed');
+    // Check proving key
+    console.log('\nChecking proving key...');
+    const provingKeyPath = platform.ziskPaths.provingKey;
+    if (await fs.pathExists(provingKeyPath)) {
+      console.log(chalk.green('Proving key found'));
+    } else {
+      issues.push('Proving key not found');
+      recommendations.push('Install proving key: ziskup');
+    }
     
-    // Generate report
-    const report = diagnostics.generateReport(results);
-    diagnostics.displayReport(report);
+    // Check witness library
+    console.log('\nChecking witness library...');
+    const libPaths = platform.resolveLibraryPaths();
+    if (await fs.pathExists(libPaths.witnessLibrary)) {
+      console.log(chalk.green('Witness library found'));
+    } else {
+      issues.push('Witness library not found');
+      recommendations.push('Reinstall ZisK: ziskup');
+    }
     
-    return report;
+    // Check current project
+    console.log('\nChecking current project...');
+    if (await fs.pathExists('.zisk-env')) {
+      console.log(chalk.green('ZisK project detected'));
+      const envContent = await fs.readFile('.zisk-env', 'utf8');
+      const projectName = envContent.match(/PROJECT_NAME=(.+)/)?.[1];
+      if (projectName) {
+        console.log(chalk.green(`Project: ${projectName}`));
+      }
+    } else {
+      console.log(chalk.yellow('No ZisK project in current directory'));
+      recommendations.push('Initialize a project: zisk-dev init --name <project-name>');
+    }
+    
+    // Summary
+    console.log('\n' + '='.repeat(50));
+    if (issues.length === 0) {
+      console.log(chalk.green('All checks passed! Your ZisK environment is ready.'));
+    } else {
+      console.log(chalk.red(`Found ${issues.length} issue(s):`));
+      issues.forEach((issue, i) => {
+        console.log(chalk.red(`  ${i + 1}. ${issue}`));
+      });
+      
+      if (recommendations.length > 0) {
+        console.log(chalk.blue('\nRecommendations:'));
+        recommendations.forEach((rec, i) => {
+          console.log(chalk.blue(`  ${i + 1}. ${rec}`));
+        });
+      }
+    }
     
   } catch (error) {
-    spinner.fail('Diagnostics failed');
-    await errorHandler.handleError(error, { name: 'doctor' }, options);
-    throw error;
+    console.error(chalk.red('Doctor command failed:'), error.message);
   }
 }
 
@@ -591,20 +891,76 @@ async function doctorCommand(options) {
  * Show current project and system status
  */
 async function statusCommand(options) {
+  console.log(chalk.blue('ZisK Project Status\n'));
+  
   try {
-    const status = await getProjectStatus();
-    
-    if (options.json) {
-      console.log(JSON.stringify(status, null, 2));
-    } else {
-      displayStatus(status, options.detailed);
+    // Check if we're in a ZisK project
+    if (!await fs.pathExists('.zisk-env')) {
+      console.log(chalk.red('Not in a ZisK project directory'));
+      console.log(chalk.yellow('Run "zisk-dev init --name <project-name>" to initialize a project'));
+      return;
     }
     
-    return status;
+    // Read project info
+    const envContent = await fs.readFile('.zisk-env', 'utf8');
+    const projectName = envContent.match(/PROJECT_NAME=(.+)/)?.[1];
+    const buildProfile = envContent.match(/BUILD_PROFILE=(.+)/)?.[1] || 'release';
+    
+    console.log(chalk.green(`Project: ${projectName}`));
+    console.log(chalk.green(`Build Profile: ${buildProfile}`));
+    
+    // Check build status
+    const elfPath = `target/riscv64ima-zisk-zkvm-elf/${buildProfile}/${projectName}`;
+    if (await fs.pathExists(elfPath)) {
+      const stats = await fs.stat(elfPath);
+      console.log(chalk.green(`Built: ${stats.mtime.toLocaleString()}`));
+    } else {
+      console.log(chalk.yellow('Not built yet'));
+    }
+    
+    // Check input files
+    const inputDir = 'build';
+    if (await fs.pathExists(inputDir)) {
+      const inputFiles = await fs.readdir(inputDir);
+      const binFiles = inputFiles.filter(f => f.endsWith('.bin'));
+      if (binFiles.length > 0) {
+        console.log(chalk.green(`Input files: ${binFiles.length} found`));
+        binFiles.forEach(file => {
+          console.log(chalk.gray(`  - ${file}`));
+        });
+      } else {
+        console.log(chalk.yellow('No input files found in build/'));
+      }
+    } else {
+      console.log(chalk.yellow('No build directory found'));
+    }
+    
+    // Check proof files
+    const proofDir = 'proofs';
+    if (await fs.pathExists(proofDir)) {
+      const proofFiles = await fs.readdir(proofDir);
+      if (proofFiles.length > 0) {
+        console.log(chalk.green(`Proof files: ${proofFiles.length} found`));
+      } else {
+        console.log(chalk.yellow('No proof files found'));
+      }
+    } else {
+      console.log(chalk.yellow('No proofs directory found'));
+    }
+    
+    // Show next steps
+    console.log(chalk.blue('\nNext steps:'));
+    if (!await fs.pathExists(elfPath)) {
+      console.log(chalk.blue('  - zisk-dev build'));
+    } else if (!await fs.pathExists('build/input.bin')) {
+      console.log(chalk.blue('  - Create input files in build/ directory'));
+    } else {
+      console.log(chalk.blue('  - zisk-dev run (build + execute)'));
+      console.log(chalk.blue('  - zisk-dev prove (generate proofs)'));
+    }
     
   } catch (error) {
-    await errorHandler.handleError(error, { name: 'status' }, options);
-    throw error;
+    console.error(chalk.red('Status command failed:'), error.message);
   }
 }
 
@@ -748,6 +1104,111 @@ async function resetCommand(options) {
 
 // Helper functions
 /**
+ * Load project configuration from .zisk-env file
+ */
+async function loadProjectConfig(targetDir) {
+  const envPath = path.join(targetDir, '.zisk-env');
+  
+  if (!fs.existsSync(envPath)) {
+    return null;
+  }
+  
+  try {
+    const envContent = await fs.readFile(envPath, 'utf8');
+    const config = {};
+    
+    // Parse .env format
+    const lines = envContent.split('\n');
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine && !trimmedLine.startsWith('#')) {
+        const [key, ...valueParts] = trimmedLine.split('=');
+        if (key && valueParts.length > 0) {
+          config[key.trim()] = valueParts.join('=').trim();
+        }
+      }
+    }
+    
+    return config;
+  } catch (error) {
+    console.warn(`Could not read .zisk-env file: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Get project name from configuration or fallback sources
+ */
+async function getProjectName(targetDir) {
+  // First, try to read from .zisk-env
+  const config = await loadProjectConfig(targetDir);
+  if (config && config.PROJECT_NAME) {
+    return config.PROJECT_NAME;
+  }
+  
+  // Fallback to Cargo.toml
+  const cargoTomlPath = path.join(targetDir, 'Cargo.toml');
+  if (fs.existsSync(cargoTomlPath)) {
+    try {
+      const cargoContent = await fs.readFile(cargoTomlPath, 'utf8');
+      const nameMatch = cargoContent.match(/name\s*=\s*"([^"]+)"/);
+      if (nameMatch) {
+        return nameMatch[1];
+      }
+    } catch (error) {
+      console.warn('Could not read Cargo.toml for project name');
+    }
+  }
+  
+  // Fallback to directory name
+  const dirName = path.basename(targetDir);
+  if (dirName && dirName !== '.') {
+    return dirName;
+  }
+  
+  // Final fallback
+  return 'zisk-project';
+}
+
+/**
+ * Extract project name from various sources (legacy function)
+ */
+async function extractProjectName(targetDir) {
+  return await getProjectName(targetDir);
+}
+
+/**
+ * Detect the main program file in an existing project
+ */
+async function detectMainProgramFile(targetDir) {
+  const possibleMainFiles = [
+    'src/main.rs',
+    'src/lib.rs',
+    'main.rs',
+    'lib.rs'
+  ];
+  
+  for (const mainFile of possibleMainFiles) {
+    const fullPath = path.join(targetDir, mainFile);
+    if (fs.existsSync(fullPath)) {
+      try {
+        const content = await fs.readFile(fullPath, 'utf8');
+        // Check if it's a ZisK program (has ziskos::entrypoint! or similar)
+        if (content.includes('ziskos::entrypoint!') || 
+            content.includes('ziskos') || 
+            content.includes('zisk')) {
+          return mainFile;
+        }
+      } catch (error) {
+        console.warn(`Could not read ${mainFile}: ${error.message}`);
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Check if current directory is an existing ZisK project
  */
 async function checkExistingZiskProject(targetDir) {
@@ -797,9 +1258,9 @@ function displayBasicBuildInfo(buildResult) {
 /**
  * Configure existing ZisK project with additional tooling
  */
-async function configureExistingProject(targetDir, options) {
+async function configureExistingProject(targetDir, options, projectName) {
   // Add zisk-dev configuration
-  await createConfiguration(targetDir, options);
+  await createConfiguration(targetDir, options, projectName);
   
   // Create additional directories if they don't exist
   const additionalDirs = ['inputs', 'outputs', 'docs', 'scripts'];
@@ -812,7 +1273,7 @@ async function configureExistingProject(targetDir, options) {
   }
   
   // Create example input files
-  await createExampleInputs(targetDir);
+  await createExampleInputs(targetDir, projectName);
   
   console.log('Existing project configured successfully');
 }
@@ -830,13 +1291,15 @@ async function createNewZiskProject(targetDir, projectName, options) {
     console.log('cargo-zisk not found, creating basic ZisK project structure...');
   }
   
+  let projectDir;
+  
   if (useCargoZisk) {
     // Create new project using cargo-zisk sdk new
     console.log(`Creating new ZisK project: ${projectName}`);
     await executor.executeCommand('cargo-zisk', ['sdk', 'new', projectName], { cwd: targetDir });
     
     // Move into the created project directory
-    const projectDir = path.join(targetDir, projectName);
+    projectDir = path.join(targetDir, projectName);
     if (fs.existsSync(projectDir)) {
       process.chdir(projectDir);
       console.log(`Changed to project directory: ${projectName}`);
@@ -844,11 +1307,12 @@ async function createNewZiskProject(targetDir, projectName, options) {
   } else {
     // Create basic ZisK project structure
     console.log(`Creating basic ZisK project structure: ${projectName}`);
+    projectDir = path.join(targetDir, projectName);
     await createBasicZiskProject(targetDir, projectName);
   }
   
   // Add additional configuration and tooling
-  await configureExistingProject(process.cwd(), options);
+  await configureExistingProject(projectDir, options);
 }
 
 /**
@@ -960,14 +1424,14 @@ Thumbs.db
 /**
  * Create example input files
  */
-async function createExampleInputs(targetDir) {
+async function createExampleInputs(targetDir, projectName) {
   const inputsDir = path.join(targetDir, 'inputs');
   await fs.ensureDir(inputsDir);
   
   // Example JSON input
   const exampleJson = {
     "number": 20,
-    "description": "Example input for SHA-256 hashing"
+    "description": `Example input for ${projectName}`
   };
   
   await fs.writeFile(
@@ -978,7 +1442,7 @@ async function createExampleInputs(targetDir) {
   
   // Example YAML input
   const exampleYaml = `number: 20
-description: Example input for SHA-256 hashing
+description: Example input for ${projectName}
 `;
   
   await fs.writeFile(
@@ -987,7 +1451,20 @@ description: Example input for SHA-256 hashing
     'utf8'
   );
   
+  // Example custom binary input file
+  const customInputName = `${projectName}_input.bin`;
+  const binaryData = Buffer.alloc(8);
+  binaryData.writeBigUInt64LE(BigInt(20), 0);
+  
+  await fs.writeFile(
+    path.join(inputsDir, customInputName),
+    binaryData
+  );
+  
   console.log('Created example input files');
+  console.log(`  - example.json`);
+  console.log(`  - example.yaml`);
+  console.log(`  - ${customInputName}`);
 }
 
 async function createProjectStructure(targetDir, projectType, projectName) {
@@ -1000,10 +1477,53 @@ async function generateTemplateFiles(targetDir, projectType, projectName) {
   return await generateTemplateFiles(targetDir, projectType, projectName);
 }
 
-async function createConfiguration(targetDir, options) {
+async function createConfiguration(targetDir, options, projectName) {
+  const finalProjectName = projectName || options.name || 'zisk-project';
+  
+  // Create .zisk-env file for project-specific settings
+  const envContent = `# ZisK Project Configuration
+# This file contains project-specific settings for the ZisK CLI
+
+# Project Information
+PROJECT_NAME=${finalProjectName}
+PROJECT_TYPE=${options.type || 'basic'}
+PROJECT_VERSION=1.0.0
+
+# Build Configuration
+BUILD_PROFILE=release
+BUILD_FEATURES=
+BUILD_TARGET=
+
+# Execution Configuration
+EXECUTION_MAX_STEPS=1000000
+EXECUTION_TIMEOUT=30000
+EXECUTION_PARALLEL=false
+
+# Input Configuration
+INPUT_DEFAULT_FORMAT=json
+INPUT_AUTO_CONVERT=true
+INPUT_CUSTOM_NAMES=true
+INPUT_DEFAULT_FILE=input.bin
+
+# Output Configuration
+OUTPUT_SAVE_PROOFS=true
+OUTPUT_SAVE_WITNESSES=true
+OUTPUT_SAVE_LOGS=true
+OUTPUT_DIRECTORY=outputs
+
+# Logging Configuration
+LOG_LEVEL=info
+LOG_VERBOSE=false
+LOG_SAVE_TO_FILE=true
+`;
+  
+  const envPath = path.join(targetDir, '.zisk-env');
+  await fs.writeFile(envPath, envContent, 'utf8');
+  
+  // Also create the legacy config file for backward compatibility
   const config = {
     project: {
-      name: options.name || 'zisk-project',
+      name: finalProjectName,
       type: options.type || 'basic',
       version: '1.0.0'
     },
@@ -1019,12 +1539,15 @@ async function createConfiguration(targetDir, options) {
     },
     inputs: {
       defaultFormat: 'json',
-      autoConvert: true
+      autoConvert: true,
+      customNames: true,
+      defaultFile: 'input.bin'
     },
     outputs: {
       saveProofs: true,
       saveWitnesses: true,
-      saveLogs: true
+      saveLogs: true,
+      directory: 'outputs'
     },
     logging: {
       level: 'info',
@@ -1037,7 +1560,9 @@ async function createConfiguration(targetDir, options) {
   const configContent = `module.exports = ${JSON.stringify(config, null, 2)};`;
   await fs.writeFile(configPath, configContent, 'utf8');
   
-  console.log(`Created configuration: zisk-dev.config.js`);
+  console.log(`Created configuration files:`);
+  console.log(`  - .zisk-env (project settings)`);
+  console.log(`  - zisk-dev.config.js (legacy config)`);
 }
 
 async function runSystemCheck(blocking) {
@@ -1178,31 +1703,25 @@ function displayBuildInfo(buildResult, elfPath) {
   console.log(`Duration: ${buildResult.duration}ms`);
 }
 
-function getExpectedElfPath(profile) {
+async function getExpectedElfPath(profile, projectName = null) {
   const { PlatformManager } = require('./platform');
   const fs = require('fs-extra');
   const platform = new PlatformManager();
   const targetDir = profile === 'release' ? 'release' : 'debug';
   
-  // Read project name from Cargo.toml
-  let projectName = 'test-project'; // fallback
-  try {
-    const cargoToml = fs.readFileSync('Cargo.toml', 'utf8');
-    const nameMatch = cargoToml.match(/name\s*=\s*"([^"]+)"/);
-    if (nameMatch) {
-      projectName = nameMatch[1];
-    }
-  } catch (error) {
-    console.warn('Could not read Cargo.toml, using fallback project name');
+  // Use provided project name or get from configuration
+  let finalProjectName = projectName;
+  if (!finalProjectName) {
+    finalProjectName = await getProjectName(process.cwd());
   }
   
   // For ZisK projects, the ELF file is in the riscv64ima-zisk-zkvm-elf target
-  return `target/riscv64ima-zisk-zkvm-elf/${targetDir}/${projectName}`;
+  return `target/riscv64ima-zisk-zkvm-elf/${targetDir}/${finalProjectName}`;
 }
 
 async function setupROM(elfPath, options) {
   // Setup ROM using cargo-zisk rom-setup
-  const setupArgs = ['rom-setup', '-e', elfPath];
+  const setupArgs = ['-e', elfPath];
   
   if (options.provingKey) {
     setupArgs.push('-k', options.provingKey);
@@ -1244,7 +1763,7 @@ async function generateProofs(inputs, elfPath, options) {
   const results = [];
   
   for (const input of inputs) {
-    const proveArgs = ['prove', '-e', elfPath, '-i', input.outputPath];
+    const proveArgs = ['-e', elfPath, '-i', input.outputPath];
     
     const outputDir = options.output || './proofs';
     proveArgs.push('-o', outputDir);
@@ -1310,7 +1829,23 @@ async function getInputFiles(options) {
     return glob.sync(options.inputs);
   }
   
-  // Default: get all input files from inputs directory
+  // Load configuration from .zisk-env file
+  const config = await loadProjectConfig(process.cwd());
+  const defaultInputFile = config?.INPUT_DEFAULT_FILE || 'input.bin';
+  
+  // Check if the default input file exists in build directory
+  const buildInputPath = path.join('build', defaultInputFile);
+  if (fs.existsSync(buildInputPath)) {
+    return [buildInputPath];
+  }
+  
+  // Check if the default input file exists in inputs directory
+  const inputsInputPath = path.join(inputDir, defaultInputFile);
+  if (fs.existsSync(inputsInputPath)) {
+    return [inputsInputPath];
+  }
+  
+  // Fallback: get all input files from inputs directory
   if (fs.existsSync(inputDir)) {
     return glob.sync(`${inputDir}/*`);
   }
@@ -1320,6 +1855,10 @@ async function getInputFiles(options) {
 
 async function convertInputs(inputFiles, options) {
   const results = [];
+  
+  // Load configuration from .zisk-env file
+  const config = await loadProjectConfig(process.cwd());
+  const defaultInputFile = config?.INPUT_DEFAULT_FILE || 'input.bin';
   
   for (const inputFile of inputFiles) {
     const ext = path.extname(inputFile).toLowerCase();
@@ -1331,8 +1870,8 @@ async function convertInputs(inputFiles, options) {
         outputPath: inputFile
       });
     } else {
-      // Convert to binary format
-      const outputPath = path.join('build', path.basename(inputFile, ext) + '.bin');
+      // Convert to binary format, use the default input file name from config
+      const outputPath = path.join('build', defaultInputFile);
       await converter.convertInput(inputFile, outputPath, options);
       results.push({
         inputPath: inputFile,
@@ -1527,6 +2066,30 @@ async function runE2ETests() {
   // Implementation for end-to-end tests
 }
 
+// Welcome command to show the installation animation
+async function welcomeCommand(options) {
+  console.log('      |\\---/|');
+  console.log('      | ,_, |');
+  console.log('       \\_`_/-..----.');
+  console.log('    ___/ `   \' ,""+ \\');
+  console.log('   (__...\'   __\\    |`.___.\';');
+  console.log('     (_,...\'(_,.`__)/\'.....+');
+  console.log('');
+  console.log('Welcome to ZisK CLI!');
+  console.log('');
+  console.log('Quick Start Commands:');
+  console.log('  zisk-dev init --name my-project    # Create new ZisK project');
+  console.log('  zisk-dev build                     # Build your program');
+  console.log('  zisk-dev run                       # Build and execute');
+  console.log('  zisk-dev --help                    # See all commands');
+  console.log('');
+  console.log('Important Notice:');
+  console.log('This is a personal CLI tool for testing and learning purposes.');
+  console.log('For production use, please refer to the official ZisK documentation.');
+  console.log('');
+  console.log('Happy building with ZisK!');
+}
+
 module.exports = {
   initCommand,
   buildCommand,
@@ -1545,5 +2108,22 @@ module.exports = {
   cacheCommand,
   installCommand,
   setupCommand,
-  resetCommand
+  resetCommand,
+  welcomeCommand,
+  // Helper functions
+  getProjectName,
+  loadProjectConfig,
+  checkExistingZiskProject,
+  detectMainProgramFile,
+  configureExistingProject,
+  createNewZiskProject,
+  createBasicZiskProject,
+  getBasicCargoToml,
+  getBasicBuildRs,
+  getBasicMainRs,
+  getBasicGitignore,
+  createConfiguration,
+  createExampleInputs,
+  runSystemCheck,
+  displayGettingStarted
 };

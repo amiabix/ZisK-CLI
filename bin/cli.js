@@ -18,6 +18,7 @@ const {
   cleanCommand,
   watchCommand,
   devCommand,
+  welcomeCommand,
   testCommand,
   doctorCommand,
   statusCommand,
@@ -28,19 +29,14 @@ const {
   setupCommand,
   resetCommand
 } = require('../src/commands');
-const { PlatformManager } = require('../src/platform');
-const { ConfigurationManager } = require('../src/config');
-const { Logger } = require('../src/logger');
+// Simple platform check
+const os = require('os');
+const platform = os.platform();
+const arch = os.arch();
 
-// Initialize core services
-const platform = new PlatformManager();
-const configManager = new ConfigurationManager();
-const logger = new Logger();
-
-// Check platform compatibility early
-if (!platform.isSupported()) {
+if (!['linux', 'darwin'].includes(platform)) {
   console.error(chalk.red('ERROR: ZisK CLI is not supported on this platform'));
-  console.error(chalk.yellow(`Platform: ${platform.getPlatformInfo()}`));
+  console.error(chalk.yellow(`Platform: ${platform} ${arch}`));
   console.error(chalk.yellow('Supported platforms: Linux (x64), macOS (x64, arm64)'));
   process.exit(1);
 }
@@ -49,25 +45,12 @@ if (!platform.isSupported()) {
 const program = new Command();
 
 program
-  .name('zisk-dev-cli')
+  .name('zisk-dev')
   .description('Personal CLI tool for ZISK zkVM development testing and learning purposes')
   .version(version, '-v, --version')
   .option('-d, --debug', 'Enable debug mode')
   .option('--verbose', 'Enable verbose output')
-  .option('--config <path>', 'Path to configuration file')
-  .hook('preAction', async (thisCommand) => {
-    // Load configuration
-    try {
-      await configManager.loadConfiguration(thisCommand.opts().config);
-    } catch (error) {
-      logger.error('Failed to load configuration', error);
-      process.exit(1);
-    }
-    
-    // Setup logging
-    logger.setLevel(thisCommand.opts().debug ? 'debug' : 'info');
-    logger.setVerbose(thisCommand.opts().verbose);
-  });
+  .option('--config <path>', 'Path to configuration file');
 
 // Core commands
 program
@@ -77,6 +60,11 @@ program
   .option('--name <name>', 'Project name')
   .option('--template <template>', 'Template to use')
   .action(initCommand);
+
+program
+  .command('welcome')
+  .description('Show welcome message and sleepy cat animation')
+  .action(welcomeCommand);
 
 program
   .command('build')
@@ -138,13 +126,7 @@ program
   .option('--verkey <path>', 'Path to verification key')
   .action(verifyCommand);
 
-program
-  .command('clean')
-  .description('Clean build artifacts and temporary files')
-  .option('--all', 'Clean all artifacts including cache')
-  .option('--outputs', 'Clean output files only')
-  .option('--builds', 'Clean build files only')
-  .action(cleanCommand);
+// Clean command will be defined later with enhanced options
 
 // Development commands
 program
@@ -171,20 +153,7 @@ program
   .option('--coverage', 'Generate coverage report')
   .action(testCommand);
 
-// Tooling commands
-program
-  .command('doctor')
-  .description('System health check and diagnostics')
-  .option('--fix', 'Attempt to fix detected issues')
-  .option('--report', 'Generate detailed report')
-  .action(doctorCommand);
-
-program
-  .command('status')
-  .description('Show current project and system status')
-  .option('--json', 'Output in JSON format')
-  .option('--detailed', 'Show detailed information')
-  .action(statusCommand);
+// Tooling commands (doctor and status defined later with enhanced options)
 
 program
   .command('config')
@@ -236,16 +205,36 @@ program
   .option('--config', 'Reset configuration only')
   .action(resetCommand);
 
+// Doctor command
+program
+  .command('doctor')
+  .description('Diagnose ZisK installation and environment')
+  .action(doctorCommand);
+
+// Status command
+program
+  .command('status')
+  .description('Show current project status')
+  .action(statusCommand);
+
+// Clean command (update existing)
+program
+  .command('clean')
+  .description('Clean build artifacts and temporary files')
+  .option('--force', 'Force clean without confirmation')
+  .option('--all', 'Clean all directories')
+  .action(cleanCommand);
+
 // Global error handling
 program.exitOverride();
 
 try {
   program.parse();
 } catch (error) {
-  if (error.code === 'commander.help') {
+  if (error.code === 'commander.help' || error.code === 'commander.version') {
     process.exit(0);
   }
   
-  logger.error('Command execution failed', error);
+  console.error(chalk.red('Command execution failed:'), error.message);
   process.exit(1);
 }
