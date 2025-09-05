@@ -1,6 +1,6 @@
 {
   "name": "@abix/zisk-dev-cli",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "A comprehensive CLI tool for ZisK zkVM development with full macOS support. Features project initialization, building, execution, proof generation, environment diagnostics, and project management. This is a personal tool for testing and learning - not an official ZisK product.",
   "main": "src/index.js",
   "bin": {
@@ -11,33 +11,6 @@
     "bin/",
     "src/",
     "scripts/"
-  ],
-  "keywords": [
-    "zisk",
-    "zkvm",
-    "zero-knowledge",
-    "zk-proofs",
-    "rust",
-    "cli",
-    "development",
-    "macos",
-    "linux",
-    "cargo-zisk",
-    "ziskemu",
-    "proving",
-    "verification"
-  ],
-  "engines": {
-    "node": ">=16.0.0",
-    "npm": ">=8.0.0"
-  },
-  "os": [
-    "linux",
-    "darwin"
-  ],
-  "cpu": [
-    "x64",
-    "arm64"
   ],
   "keywords": [
     "zisk",
@@ -59,6 +32,18 @@
     "educational",
     "personal-project",
     "non-official"
+  ],
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
   ],
   "author": {
     "name": "Abix",
