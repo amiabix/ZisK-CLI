@@ -55,10 +55,10 @@ program
 
 // Core commands
 program
-  .command('init')
+  .command('init [name]')
   .description('Initialize a new ZISK project')
   .option('-t, --type <type>', 'Project type (basic, advanced, custom)', 'basic')
-  .option('--name <name>', 'Project name')
+  .option('--name <name>', 'Project name (alternative to positional argument)')
   .option('--template <template>', 'Template to use')
   .action(initCommand);
 

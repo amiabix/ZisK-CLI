@@ -159,15 +159,16 @@ async function cleanCommand(options) {
 /**
  * Initialize a new ZISK project or configure existing one
  */
-async function initCommand(options) {
+async function initCommand(name, options) {
   console.log('Initializing ZisK project...');
   
   try {
     const targetDir = process.cwd();
-    const projectName = options.name;
+    // Use positional argument first, then fall back to --name option
+    const projectName = name || options.name;
     
     if (!projectName) {
-              throw new Error('Project name is required. Use: zisk-dev init --name <project-name>');
+      throw new Error('Project name is required. Use: zisk-dev init <project-name> or zisk-dev init --name <project-name>');
     }
     
     console.log(`Creating ZisK project: ${projectName}`);
