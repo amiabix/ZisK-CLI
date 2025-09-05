@@ -2066,6 +2066,132 @@ async function runE2ETests() {
   // Implementation for end-to-end tests
 }
 
+// Analytics command to show detailed proof and execution analytics
+async function analyticsCommand(options) {
+  console.log(chalk.blue('ZisK Analytics Dashboard\n'));
+  
+  try {
+    // Check if we're in a ZisK project
+    if (!await fs.pathExists('.zisk-env')) {
+      console.log(chalk.red('Not in a ZisK project directory'));
+      console.log(chalk.yellow('Run "zisk-dev init --name <project-name>" to initialize a project'));
+      return;
+    }
+    
+    // Read project info
+    const envContent = await fs.readFile('.zisk-env', 'utf8');
+    const projectName = envContent.match(/PROJECT_NAME=(.+)/)?.[1];
+    const buildProfile = envContent.match(/BUILD_PROFILE=(.+)/)?.[1] || 'release';
+    
+    console.log(chalk.green(`Project: ${projectName}`));
+    console.log(chalk.green(`Build Profile: ${buildProfile}\n`));
+    
+    // Check build status
+    const elfPath = `target/riscv64ima-zisk-zkvm-elf/${buildProfile}/${projectName}`;
+    if (await fs.pathExists(elfPath)) {
+      const stats = await fs.stat(elfPath);
+      console.log(chalk.blue('Build Information:'));
+      console.log(`  ELF File: ${elfPath}`);
+      console.log(`  Size: ${(stats.size / 1024).toFixed(2)} KB`);
+      console.log(`  Last Built: ${stats.mtime.toLocaleString()}\n`);
+    }
+    
+    // Check proof files
+    const proofDir = 'proof';
+    if (await fs.pathExists(proofDir)) {
+      const proofFiles = await fs.readdir(proofDir);
+      const proofFilesWithStats = [];
+      
+      for (const file of proofFiles) {
+        if (file.endsWith('.bin') || file.endsWith('.json')) {
+          const filePath = path.join(proofDir, file);
+          const stats = await fs.stat(filePath);
+          proofFilesWithStats.push({
+            name: file,
+            size: stats.size,
+            mtime: stats.mtime
+          });
+        }
+      }
+      
+      if (proofFilesWithStats.length > 0) {
+        console.log(chalk.blue('Proof Files:'));
+        proofFilesWithStats.forEach(file => {
+          const sizeKB = (file.size / 1024).toFixed(2);
+          const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+          const sizeStr = file.size > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`;
+          console.log(`  ${file.name}: ${sizeStr} (${file.mtime.toLocaleString()})`);
+        });
+        console.log('');
+      }
+    }
+    
+    // Check input files
+    const inputDir = 'build';
+    if (await fs.pathExists(inputDir)) {
+      const inputFiles = await fs.readdir(inputDir);
+      const binFiles = inputFiles.filter(f => f.endsWith('.bin'));
+      if (binFiles.length > 0) {
+        console.log(chalk.blue('Input Files:'));
+        console.log(`  Total: ${binFiles.length} files`);
+        
+        // Show file sizes
+        const fileSizes = [];
+        for (const file of binFiles.slice(0, 10)) { // Show first 10
+          const filePath = path.join(inputDir, file);
+          const stats = await fs.stat(filePath);
+          fileSizes.push({ name: file, size: stats.size });
+        }
+        
+        fileSizes.forEach(file => {
+          const sizeKB = (file.size / 1024).toFixed(2);
+          console.log(`  ${file.name}: ${sizeKB} KB`);
+        });
+        
+        if (binFiles.length > 10) {
+          console.log(`  ... and ${binFiles.length - 10} more files`);
+        }
+        console.log('');
+      }
+    }
+    
+    // System resources
+    const { PlatformManager } = require('./platform');
+    const platform = new PlatformManager();
+    const resources = platform.getSystemResources();
+    
+    console.log(chalk.blue('System Resources:'));
+    console.log(`  Total Memory: ${(resources.memory.total / (1024 * 1024 * 1024)).toFixed(2)} GB`);
+    console.log(`  Free Memory: ${(resources.memory.free / (1024 * 1024 * 1024)).toFixed(2)} GB`);
+    console.log(`  Memory Usage: ${resources.memory.usagePercent.toFixed(1)}%`);
+    console.log(`  CPU Cores: ${resources.cpu.count}`);
+    console.log(`  Load Average: ${resources.cpu.loadAverage.map(l => l.toFixed(2)).join(', ')}\n`);
+    
+    // Recommendations
+    console.log(chalk.blue('Recommendations:'));
+    if (resources.memory.free < 8 * 1024 * 1024 * 1024) {
+      console.log(chalk.yellow('  ⚠️  Low memory available for proof generation'));
+    } else {
+      console.log(chalk.green('  ✅ Sufficient memory for proof generation'));
+    }
+    
+    if (binFiles.length > 0) {
+      console.log(chalk.green('  ✅ Input files ready for processing'));
+    } else {
+      console.log(chalk.yellow('  ⚠️  No input files found in build/ directory'));
+    }
+    
+    if (await fs.pathExists(proofDir)) {
+      console.log(chalk.green('  ✅ Proof files available'));
+    } else {
+      console.log(chalk.yellow('  ⚠️  No proof files found - run "zisk-dev prove" to generate'));
+    }
+    
+  } catch (error) {
+    console.error(chalk.red('Analytics command failed:'), error.message);
+  }
+}
+
 // Welcome command to show the installation animation
 async function welcomeCommand(options) {
   console.log('      |\\---/|');
@@ -2110,6 +2236,7 @@ module.exports = {
   setupCommand,
   resetCommand,
   welcomeCommand,
+  analyticsCommand,
   // Helper functions
   getProjectName,
   loadProjectConfig,

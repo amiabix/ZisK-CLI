@@ -27,7 +27,8 @@ const {
   cacheCommand,
   installCommand,
   setupCommand,
-  resetCommand
+  resetCommand,
+  analyticsCommand
 } = require('../src/commands');
 // Simple platform check
 const os = require('os');
@@ -216,6 +217,12 @@ program
   .command('status')
   .description('Show current project status')
   .action(statusCommand);
+
+// Analytics command
+program
+  .command('analytics')
+  .description('Show detailed proof and execution analytics')
+  .action(analyticsCommand);
 
 // Clean command (update existing)
 program
