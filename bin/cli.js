@@ -45,7 +45,8 @@ const {
   installCommand,
   setupCommand,
   resetCommand,
-  analyticsCommand
+  analyticsCommand,
+  statsCommand
 } = require('../src/commands');
 // Simple platform check
 const os = require('os');
@@ -240,6 +241,14 @@ program
   .command('analytics')
   .description('Show detailed proof and execution analytics')
   .action(analyticsCommand);
+
+// Stats command
+program
+  .command('stats')
+  .description('Show detailed execution statistics with cost breakdown')
+  .option('-i, --input <path>', 'Specific input file to analyze')
+  .option('--inputs <pattern>', 'Glob pattern for input files')
+  .action(statsCommand);
 
 // Clean command (update existing)
 program

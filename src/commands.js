@@ -2657,6 +2657,70 @@ async function extractProofMetrics(proofDir) {
   }
 }
 
+// Stats command to show detailed execution statistics
+async function statsCommand(options) {
+  console.log(chalk.blue('ZisK Execution Statistics\n'));
+  
+  try {
+    // Load complete configuration (system + project + .env overrides)
+    const config = await configManager.loadConfiguration(process.cwd());
+    
+    console.log(chalk.green(`Project: ${config.projectName}`));
+    console.log(chalk.green(`Build Profile: ${config.buildProfile}\n`));
+    
+    // Check if ELF file exists
+    const elfPath = await getExpectedElfPath(config.buildProfile, config.projectName);
+    if (!await fs.pathExists(elfPath)) {
+      console.log(chalk.red('ELF file not found. Please run "zisk-dev build" first.'));
+      return;
+    }
+    
+    // Get input files
+    const inputFiles = await getInputFiles(options);
+    if (inputFiles.length === 0) {
+      console.log(chalk.red('No input files found. Please create input files in build/ directory.'));
+      return;
+    }
+    
+    console.log(chalk.blue('Running execution with detailed statistics...\n'));
+    
+    // Run execution with stats flag for each input file
+    for (let i = 0; i < inputFiles.length; i++) {
+      const inputFile = inputFiles[i];
+      console.log(chalk.blue(`Input ${i + 1}/${inputFiles.length}: ${inputFile}`));
+      console.log('='.repeat(60));
+      
+      try {
+        // Use ziskemu with -x flag for detailed statistics
+        const ziskemuArgs = ['-e', elfPath, '-i', inputFile, '-x'];
+        
+        const result = await executor.executeZiskemu(ziskemuArgs, {
+          cwd: process.cwd()
+        });
+        
+        // Display the raw statistics output
+        console.log(result.stdout);
+        
+        if (result.stderr) {
+          console.log(chalk.yellow('Additional output:'));
+          console.log(result.stderr);
+        }
+        
+        console.log('\n' + '='.repeat(60) + '\n');
+        
+      } catch (error) {
+        console.error(chalk.red(`Failed to get statistics for ${inputFile}:`), error.message);
+        console.log('\n' + '='.repeat(60) + '\n');
+      }
+    }
+    
+    console.log(chalk.green('Statistics collection completed!'));
+    
+  } catch (error) {
+    console.error(chalk.red('Stats command failed:'), error.message);
+  }
+}
+
 // Welcome command to show the installation animation
 async function welcomeCommand(options) {
   console.log('      |\\---/|');
@@ -2702,6 +2766,7 @@ module.exports = {
   resetCommand,
   welcomeCommand,
   analyticsCommand,
+  statsCommand,
   // Helper functions
   getProjectName,
   loadProjectConfig,
