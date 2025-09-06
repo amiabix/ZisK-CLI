@@ -1,379 +1,301 @@
-# ZisK Development CLI Tool (Personal Project)
+# ZisK Development CLI
 
-**IMPORTANT: This is a personal project for testing and learning purposes only. It is NOT an official ZisK tool.**
+A comprehensive command-line interface for ZisK zkVM development with full macOS support. This tool provides project initialization, building, execution, proof generation, and environment diagnostics for ZisK zero-knowledge virtual machine development.
 
-A personal CLI tool for ZisK zkVM development testing and learning purposes. This tool automates basic ZisK workflows for educational and testing purposes only. For production use, please refer to the official ZisK documentation and tools.
+## Overview
+
+The ZisK Development CLI is a personal development tool designed to streamline ZisK zkVM project workflows. It automates common development tasks including project setup, building, execution, proof generation, and verification while providing comprehensive error handling and environment diagnostics.
+
+**Note**: This is a personal development tool for testing and learning purposes. It is not an official ZisK product.
 
 ## Features
 
-- **Single Command Pipeline**: Convert `zisk-dev run` replaces 6+ manual commands
-- **Multi-Format Input Support**: JSON, YAML, text, and binary input formats
-- **Cross-Platform**: Full support for Linux, limited support for macOS
-- **Developer Experience**: Comprehensive error handling, debugging, and progress tracking
-- **Zero Configuration**: Works out-of-the-box with sensible defaults
-- **Project Templates**: Quick project initialization with example code
-- **Hot Reloading**: Watch mode for development with auto-rebuild
-- **System Diagnostics**: Built-in health checks and troubleshooting
-
-## Prerequisites
-
-- **Node.js**: 16.0.0 or later
-- **npm**: 8.0.0 or later
-- **Platform**: Linux (x64) for full features, macOS (x64/arm64) for limited features
-- **System Dependencies**: curl, tar, gcc (automatically checked during installation)
+- **Project Management**: Initialize new ZisK projects with proper structure
+- **Build System**: Compile ZisK programs with configurable profiles and targets
+- **Execution Pipeline**: Run programs with input processing and metrics
+- **Proof Generation**: Generate zero-knowledge proofs with concurrency control
+- **Environment Diagnostics**: Comprehensive system health checks and validation
+- **Real-time Monitoring**: Watch mode with automatic rebuilds and execution
+- **Error Handling**: Structured error reporting with recovery suggestions
+- **Security**: Input validation, path sanitization, and secure process management
 
 ## Installation
 
 ```bash
-npm install -g zisk-dev
+npm install -g @abix/zisk-dev-cli
 ```
 
-The installation includes automatic verification of your system and provides setup guidance.
+## Prerequisites
+
+- Node.js 16.0.0 or higher
+- Rust toolchain with cargo-zisk installed
+- ZisK zkVM runtime environment
 
 ## Quick Start
 
-### 1. Create a New Project
-
-```bash
-# Create and initialize a new ZISK project
-mkdir my-zisk-project && cd my-zisk-project
-zisk-dev init
-
-# Or with custom options
-zisk-dev init --type advanced --name my-custom-project
-```
-
-### 2. Install ZISK Dependencies
-
-```bash
-# Install ZISK toolchain and dependencies
-zisk-dev install
-```
-
-### 3. Run Your First Program
-
-```bash
-# Execute the complete pipeline following ZisK documentation
-zisk-dev run
-
-# Or run individual steps:
-zisk-dev build --release                    # Build program
-zisk-dev execute -i inputs/example.json     # Execute with input
-zisk-dev prove -i inputs/example.json        # Generate proof
-zisk-dev verify -p proofs/proof.bin         # Verify proof
-```
-
-## Command Reference
-
-### Core Commands
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `init` | Initialize new ZISK project | `zisk-dev init --type advanced` |
-| `build` | Build ZISK program | `zisk-dev build --profile release` |
-| `run` | Complete pipeline execution | `zisk-dev run -i inputs/data.json --metrics` |
-| `execute` | Execute program (no proving) | `zisk-dev execute --metrics` |
-| `prove` | Generate zero-knowledge proof | `zisk-dev prove --verify` |
-| `verify` | Verify generated proof | `zisk-dev verify -p proof.bin` |
-| `clean` | Clean build artifacts | `zisk-dev clean --all` |
-
-### Development Commands
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `watch` | Watch for file changes | `zisk-dev watch --patterns "**/*.rs"` |
-| `dev` | Development mode | `zisk-dev dev --port 3000` |
-| `test` | Run test suite | `zisk-dev test --coverage` |
-
-### Tooling Commands
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `doctor` | System diagnostics | `zisk-dev doctor --fix` |
-| `status` | Project status | `zisk-dev status --detailed` |
-| `config` | Manage configuration | `zisk-dev config --get "zisk.executionMode"` |
-| `logs` | View logs | `zisk-dev logs --follow` |
-| `cache` | Manage cache | `zisk-dev cache --clear` |
-
-### Setup Commands
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `install` | Install dependencies | `zisk-dev install --force` |
-| `setup` | Setup wizard | `zisk-dev setup --interactive` |
-| `reset` | Reset state | `zisk-dev reset --all` |
-
-## Project Structure
-
-```
-my-zisk-project/
-├── programs/zisk/          # ZISK program source code
-│   ├── src/main.rs         # Main program entry point
-│   ├── Cargo.toml          # Rust project configuration
-│   └── build.rs            # Build script
-├── inputs/                  # Input files (JSON, YAML, binary)
-│   ├── example.json         # Sample JSON input
-│   ├── example.yaml         # Sample YAML input
-│   └── test-case.bin        # Sample binary input
-├── outputs/                 # Generated outputs and proofs
-├── build/                   # Build artifacts (gitignored)
-├── docs/                    # Project documentation
-├── scripts/                 # Utility scripts
-└── zisk-dev.config.js       # CLI tool configuration
-```
-
-## Configuration
-
-The CLI tool uses a hierarchical configuration system:
-
-1. **Default configuration** (built-in)
-2. **Global configuration** (`~/.zisk/config.json`)
-3. **Project configuration** (`zisk-dev.config.js`)
-4. **Environment variables** (`ZISK_DEV_*`)
-5. **Command-line options**
-
-### Example Configuration
-
-```javascript
-// zisk-dev.config.js
-module.exports = {
-  project: {
-    name: 'my-zisk-project',
-    version: '1.0.0'
-  },
-  inputs: {
-    directory: './inputs',
-    formats: {
-      '.json': 'json-serializer',
-      '.yaml': 'yaml-serializer'
-    }
-  },
-  outputs: {
-    directory: './outputs',
-    organize: true
-  },
-  build: {
-    profile: 'release',
-    target: 'riscv64ima-zisk-zkvm-elf'
-  },
-  zisk: {
-    executionMode: 'auto',
-    parallelism: 'auto',
-    saveProofs: true
-  },
-  development: {
-    watch: {
-      enabled: false,
-      patterns: ['programs/**/*.rs']
-    },
-    debug: {
-      enabled: false,
-      level: 1
-    }
-  }
-};
-```
-
-## Input Formats
-
-The CLI supports multiple input formats with automatic conversion to ZISK-compatible binary:
-
-### JSON Input
-```json
-{
-  "n": 1000,
-  "description": "Example input",
-  "metadata": {
-    "version": "1.0"
-  }
-}
-```
-
-### YAML Input
-```yaml
-n: 1000
-description: "Example input"
-metadata:
-  version: "1.0"
-```
-
-### Text Input
-```
-# Lines format
-line1
-line2
-line3
-
-# CSV format
-name,value,description
-item1,100,first item
-item2,200,second item
-
-# Key-value format
-key1=value1
-key2=value2
-```
-
-### Binary Input
-Raw binary data (passed through without conversion)
-
-## Advanced Usage
-
-### Parallel Execution
-
-```bash
-# Execute multiple inputs in parallel
-zisk-dev run --inputs "inputs/*.json" --parallel
-
-# Use MPI for distributed proving
-zisk-dev prove --parallel --mpi-processes 4
-```
-
-### GPU Acceleration
-
-```bash
-# Enable GPU support (Linux x64 only)
-zisk-dev build --features gpu
-zisk-dev prove --gpu
-```
-
-### Custom Input Conversion
-
-```javascript
-// Custom converter
-module.exports = {
-  convert: async (inputPath, options) => {
-    // Custom conversion logic
-    return Buffer.from(convertedData);
-  }
-};
-```
-
-### Development Workflow
-
-```bash
-# Start development mode with hot reloading
-zisk-dev dev
-
-# Watch specific files
-zisk-dev watch --patterns "src/**/*.rs" "inputs/**/*"
-
-# Run tests with coverage
-zisk-dev test --coverage
-```
-
-## Troubleshooting
-
-### System Diagnostics
-
-```bash
-# Comprehensive system check
-zisk-dev doctor
-
-# Detailed diagnostics with fixes
-zisk-dev doctor --fix --report
-```
-
-### Common Issues
-
-1. **Platform Not Supported**
+1. **Initialize a new project**:
    ```bash
-   # Check platform compatibility
-   zisk-dev doctor
+   zisk-dev init my-project
+   cd my-project
    ```
 
-2. **Build Failures**
+2. **Build the project**:
    ```bash
-   # Clean and rebuild
-   zisk-dev clean --all
    zisk-dev build
    ```
 
-3. **Memory Issues**
+3. **Run the program**:
    ```bash
-   # Check system resources
-   zisk-dev status --detailed
+   zisk-dev run
    ```
 
-4. **Network Problems**
+4. **Generate proofs**:
    ```bash
-   # Verify connectivity
-   zisk-dev doctor --check-network
+   zisk-dev prove
    ```
+
+## Commands
+
+### Project Management
+
+#### `zisk-dev init <name>`
+Initialize a new ZisK project with proper structure and configuration.
+
+**Options**:
+- `--template <template>`: Use specific project template
+- `--features <features>`: Enable specific Rust features
+
+**Example**:
+```bash
+zisk-dev init my-zk-app --features "std,alloc"
+```
+
+#### `zisk-dev status`
+Display current project status including build state, configuration, and environment health.
+
+#### `zisk-dev doctor`
+Run comprehensive environment diagnostics to identify configuration issues.
+
+### Build and Execution
+
+#### `zisk-dev build`
+Build the ZisK program with configurable profiles and targets.
+
+**Options**:
+- `--profile <profile>`: Build profile (debug, release)
+- `--target <target>`: Target architecture
+- `--features <features>`: Enable specific features
+
+**Example**:
+```bash
+zisk-dev build --profile release --target riscv64ima-zisk-zkvm-elf
+```
+
+#### `zisk-dev run`
+Execute the built ZisK program with input processing.
+
+**Options**:
+- `--input <file>`: Input file path
+- `--inputs <pattern>`: Input file pattern (glob)
+- `--max-steps <number>`: Maximum execution steps
+- `--metrics`: Show execution metrics
+- `--stats`: Show execution statistics
+
+**Example**:
+```bash
+zisk-dev run --input data.json --max-steps 1000000 --metrics
+```
+
+#### `zisk-dev execute`
+Execute multiple inputs with parallel processing.
+
+**Options**:
+- `--parallel`: Run inputs in parallel
+- `--max-steps <number>`: Maximum execution steps
+- `--metrics`: Show execution metrics
+
+### Proof Generation
+
+#### `zisk-dev prove`
+Generate zero-knowledge proofs for program execution.
+
+**Options**:
+- `--input <file>`: Input file path
+- `--inputs <pattern>`: Input file pattern (glob)
+- `--output <dir>`: Output directory for proofs
+- `--profile <profile>`: Build profile to use
+- `--verify`: Verify generated proofs
+- `--aggregate`: Aggregate multiple proofs
+
+**Example**:
+```bash
+zisk-dev prove --inputs "data/*.json" --output ./proofs --verify
+```
+
+#### `zisk-dev verify`
+Verify generated proofs.
+
+**Options**:
+- `--proof <file>`: Proof file to verify
+- `--proofs <pattern>`: Proof file pattern (glob)
+
+### Development Workflow
+
+#### `zisk-dev dev`
+Start development mode with automatic rebuilding and execution.
+
+**Options**:
+- `--watch`: Watch for file changes
+- `--rebuild`: Rebuild on changes
+- `--execute`: Execute on changes
+
+#### `zisk-dev watch`
+Watch for file changes and trigger rebuilds or execution.
+
+**Options**:
+- `--patterns <patterns>`: File patterns to watch
+- `--debounce <ms>`: Debounce time in milliseconds
+- `--on-change <command>`: Command to run on file change
+
+**Example**:
+```bash
+zisk-dev watch --patterns "src/**/*.rs" --debounce 1000
+```
+
+### Project Management
+
+#### `zisk-dev clean`
+Clean build artifacts and temporary files.
+
+**Options**:
+- `--all`: Clean all generated files
+- `--proofs`: Clean proof files only
+- `--build`: Clean build artifacts only
+
+#### `zisk-dev reset`
+Reset project to clean state, removing all generated files.
+
+#### `zisk-dev config`
+Manage project configuration and environment variables.
+
+**Options**:
+- `--set <key=value>`: Set configuration value
+- `--get <key>`: Get configuration value
+- `--list`: List all configuration values
+
+### Utilities
+
+#### `zisk-dev logs`
+View and manage log files.
+
+**Options**:
+- `--level <level>`: Log level (error, warn, info, debug)
+- `--follow`: Follow log output
+- `--clear`: Clear log files
+
+#### `zisk-dev cache`
+Manage build and execution cache.
+
+**Options**:
+- `--clear`: Clear all cache
+- `--status`: Show cache status
+- `--size`: Show cache size
+
+#### `zisk-dev analytics`
+Analyze project execution and proof generation statistics.
+
+**Options**:
+- `--proofs`: Analyze proof generation
+- `--execution`: Analyze execution performance
+- `--export <file>`: Export analytics data
+
+## Configuration
+
+The CLI uses a `.env` file for project-specific configuration. Key configuration options:
+
+```bash
+# Project settings
+PROJECT_NAME=my-project
+BUILD_PROFILE=release
+BUILD_TARGET=riscv64ima-zisk-zkvm-elf
+
+# Execution settings
+EXECUTION_MAX_STEPS=1000000
+INPUT_DEFAULT_FILE=input.bin
+
+# Output settings
+OUTPUT_DIRECTORY=./proofs
+
+# Debug settings
+ZISK_DEBUG=1  # Enable debug logging
+ZISK_MAX_CONCURRENT=4  # Max concurrent operations
+```
+
+## Environment Variables
+
+- `ZISK_DEBUG`: Enable debug logging and verbose output
+- `ZISK_MAX_CONCURRENT`: Maximum concurrent operations (default: CPU cores / 2)
+- `RUST_LOG`: Rust logging level
+- `CARGO_TARGET_DIR`: Cargo target directory
+
+## Security Features
+
+- **Input Validation**: All user inputs are validated and sanitized
+- **Path Sanitization**: Prevents directory traversal attacks
+- **Process Management**: Secure process execution with timeouts and limits
+- **Log Redaction**: Sensitive values are automatically redacted from logs
+- **Concurrency Control**: Prevents resource exhaustion through process limits
+- **Environment Sanitization**: Only safe environment variables are passed to child processes
+
+## Error Handling
+
+The CLI provides comprehensive error handling with:
+
+- Structured error reporting with context
+- Recovery suggestions for common issues
+- Automatic cleanup of failed operations
+- Detailed logging for debugging
+
+## Platform Support
+
+- **macOS**: Full support including proof generation and verification
+- **Linux**: Full support for all features
+- **Architectures**: x64 and ARM64
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Build failures**: Check Rust toolchain and cargo-zisk installation
+2. **Execution errors**: Verify input file format and program logic
+3. **Proof generation issues**: Ensure proper ROM setup and witness generation
+4. **Permission errors**: Check file permissions and directory access
 
 ### Debug Mode
 
+Enable debug mode for detailed logging:
+
 ```bash
-# Enable debug output
-zisk-dev run --debug
-
-# Verbose logging
-zisk-dev run --verbose
-
-# Keep temporary files
-zisk-dev run --debug --keep-temp-files
+export ZISK_DEBUG=1
+zisk-dev <command>
 ```
 
-## Performance
+### Environment Diagnostics
 
-### Optimization Tips
-
-1. **Use Release Builds**: `zisk-dev build --profile release`
-2. **Enable Parallelism**: `zisk-dev run --parallel`
-3. **GPU Acceleration**: Use GPU support on Linux x64
-4. **Memory Management**: Monitor system resources with `zisk-dev status`
-
-### Performance Monitoring
+Run comprehensive diagnostics:
 
 ```bash
-# Show execution metrics
-zisk-dev execute --metrics
-
-# Show detailed statistics
-zisk-dev execute --stats
-
-# Monitor performance over time
-zisk-dev run --metrics --output-format json
+zisk-dev doctor
 ```
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/0xPolygonHermez/zisk-dev.git
-cd zisk-dev
-
-# Install dependencies
-npm install
-
-# Run tests
-npm test
-
-# Build the CLI
-npm run build
-```
+This is a personal development tool. For issues or suggestions, please open an issue on the GitHub repository.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see LICENSE file for details.
 
-## Links
+## Disclaimer
 
-- **Documentation**: [https://0xpolygonhermez.github.io/zisk/](https://0xpolygonhermez.github.io/zisk/)
-- **ZISK Repository**: [https://github.com/0xPolygonHermez/zisk](https://github.com/0xPolygonHermez/zisk)
-- **Issues**: [https://github.com/0xPolygonHermez/zisk-dev/issues](https://github.com/0xPolygonHermez/zisk-dev/issues)
-- **Discussions**: [https://github.com/0xPolygonHermez/zisk-dev/discussions](https://github.com/0xPolygonHermez/zisk-dev/discussions)
-
-## Acknowledgments
-
-- [0xPolygonHermez](https://github.com/0xPolygonHermez) for the ZISK zkVM
-- The Rust community for excellent tooling
-- All contributors and users of this project
-
----
-
-**Made with love by the ZISK Development Team**
+This tool is for educational and development purposes only. It is not affiliated with or endorsed by the official ZisK project. Use at your own risk.
