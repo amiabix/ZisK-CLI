@@ -4,8 +4,8 @@
   "description": "A comprehensive CLI tool for ZisK zkVM development with full macOS support. Features project initialization, building, execution, proof generation, environment diagnostics, and project management. This is a personal tool for testing and learning - not an official ZisK product.",
   "main": "src/index.js",
   "bin": {
-    "zisk-dev": "./bin/cli.js",
-    "zisk-welcome": "./bin/welcome.js"
+    "zisk-dev": "bin/cli.js",
+    "zisk-welcome": "bin/welcome.js"
   },
   "files": [
     "bin/",
@@ -80,7 +80,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/abix/zisk-dev-cli.git"
+    "url": "git+https://github.com/abix/zisk-dev-cli.git"
   },
   "bugs": {
     "url": "https://github.com/abix/zisk-dev-cli/issues"
