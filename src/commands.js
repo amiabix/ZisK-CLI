@@ -2739,7 +2739,9 @@ async function saveProofGenerationLog(output, inputFile, operation = 'prove') {
     const logDir = path.join(projectRoot, '.zisk-build', 'logs');
     
     // Ensure log directory exists
-    await fs.ensureDir(logDir);
+    if (!fs.existsSync(logDir)) {
+      await fs.mkdir(logDir, { recursive: true });
+    }
     
     // Create timestamp for log file
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
