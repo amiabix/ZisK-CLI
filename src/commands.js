@@ -2716,8 +2716,125 @@ async function statsCommand(options) {
     
     console.log(chalk.green('Statistics collection completed!'));
     
+    // Analyze proof generation logs if available
+    await analyzeProofGenerationLogs();
+    
   } catch (error) {
     console.error(chalk.red('Stats command failed:'), error.message);
+  }
+}
+
+/**
+ * Analyze proof generation logs for Air instances and memory usage
+ */
+async function analyzeProofGenerationLogs() {
+  console.log(chalk.blue('\n' + '='.repeat(80)));
+  console.log(chalk.blue('PROOF GENERATION ANALYSIS'));
+  console.log(chalk.blue('='.repeat(80)));
+  
+  try {
+    const projectRoot = process.cwd();
+    
+    // Look for recent proof generation logs
+    const logFiles = [
+      path.join(projectRoot, '.zisk-build', 'logs', 'default.log'),
+      path.join(projectRoot, 'proof', '.zisk-build', 'logs', 'default.log')
+    ];
+    
+    let foundLogs = false;
+    
+    for (const logFile of logFiles) {
+      if (fs.existsSync(logFile)) {
+        const logContent = await fs.readFile(logFile, 'utf8');
+        
+        // Parse Air instances information
+        const airInstancesMatch = logContent.match(/► (\d+) Air instances found:/);
+        if (airInstancesMatch) {
+          foundLogs = true;
+          const airCount = airInstancesMatch[1];
+          console.log(chalk.green(`\nAir Instances: ${airCount} found`));
+          
+          // Extract Air instance details
+          const airMatches = logContent.matchAll(/· (\d+) x Air \[([^\]]+)\] \(([^)]+)\)/g);
+          const airInstances = [];
+          for (const match of airMatches) {
+            airInstances.push({
+              count: parseInt(match[1]),
+              type: match[2],
+              size: match[3]
+            });
+          }
+          
+          if (airInstances.length > 0) {
+            console.log(chalk.cyan('\nAir Instance Breakdown:'));
+            airInstances.forEach(air => {
+              console.log(`  • ${air.count}x ${air.type} (${air.size})`);
+            });
+          }
+        }
+        
+        // Parse memory usage information
+        const memoryMatches = logContent.matchAll(/· ([^:]+): ([^|]+) \| Total: ([^\\n]+)/g);
+        const memoryUsage = [];
+        for (const match of memoryMatches) {
+          memoryUsage.push({
+            component: match[1].trim(),
+            perInstance: match[2].trim(),
+            total: match[3].trim()
+          });
+        }
+        
+        if (memoryUsage.length > 0) {
+          console.log(chalk.cyan('\nMemory Usage Breakdown:'));
+          memoryUsage.forEach(mem => {
+            console.log(`  • ${mem.component}: ${mem.total} (${mem.perInstance} per instance)`);
+          });
+        }
+        
+        // Parse total memory requirement
+        const totalMemoryMatch = logContent.match(/Total memory required by proofman: ([^\\n]+)/);
+        if (totalMemoryMatch) {
+          console.log(chalk.yellow(`\nTotal Memory Required: ${totalMemoryMatch[1]}`));
+        }
+        
+        // Parse proof generation summary
+        const summaryMatch = logContent.match(/time: ([^,]+), steps: (\d+)/);
+        if (summaryMatch) {
+          const time = parseFloat(summaryMatch[1]);
+          const steps = parseInt(summaryMatch[2]);
+          const throughput = Math.round(steps / time);
+          
+          console.log(chalk.cyan('\nProof Generation Summary:'));
+          console.log(`  • Generation Time: ${time.toFixed(2)} seconds`);
+          console.log(`  • Execution Steps: ${steps.toLocaleString()}`);
+          console.log(`  • Throughput: ${throughput.toLocaleString()} steps/second`);
+        }
+        
+        // Parse proof size information if available
+        const proofSizeMatch = logContent.match(/Original: (\d+) bytes\s+Compressed: (\d+) bytes \(ratio: ([\d.]+)x\)/);
+        if (proofSizeMatch) {
+          const original = parseInt(proofSizeMatch[1]);
+          const compressed = parseInt(proofSizeMatch[2]);
+          const ratio = parseFloat(proofSizeMatch[3]);
+          const compressionPercent = Math.round((1 - ratio) * 100);
+          
+          console.log(chalk.cyan('\nProof Size Information:'));
+          console.log(`  • Original Size: ${(original / 1024).toFixed(2)} KB`);
+          console.log(`  • Compressed Size: ${(compressed / 1024).toFixed(2)} KB`);
+          console.log(`  • Compression Ratio: ${ratio.toFixed(2)}x (${compressionPercent}% reduction)`);
+        }
+        
+        break; // Only analyze the first found log file
+      }
+    }
+    
+    if (!foundLogs) {
+      console.log(chalk.yellow('\nNo proof generation logs found.'));
+      console.log(chalk.yellow('Run "zisk-dev prove" to generate proofs and capture detailed logs.'));
+    }
+    
+  } catch (error) {
+    console.log(chalk.red(`\nFailed to analyze proof generation logs: ${error.message}`));
   }
 }
 
@@ -2782,5 +2899,6 @@ module.exports = {
   createConfiguration,
   createExampleInputs,
   runSystemCheck,
-  displayGettingStarted
+  displayGettingStarted,
+  analyzeProofGenerationLogs
 };
