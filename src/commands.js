@@ -588,11 +588,8 @@ async function buildCommand(options) {
         buildArgs.push('--features', features);
       }
       
-      // Use target from .env overrides if not provided via options
-      const target = validatedOptions.target || config.buildTarget;
-      if (target) {
-        buildArgs.push('--target', target);
-      }
+      // Note: cargo-zisk build doesn't accept --target argument
+      // The target is configured in Cargo.toml or via environment variables
       
       // Stop spinner temporarily to show command execution
       spinner.stop();
