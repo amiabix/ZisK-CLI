@@ -864,6 +864,9 @@ async function proveCommand(options) {
             operation: 'prove' // Security: Set operation type for appropriate timeout
           });
           
+          // Save detailed proof generation output to log file
+          await saveProofGenerationLog(result, input.inputPath, 'prove');
+          
           return {
             input: input.inputPath,
             proof: result.stdout,
@@ -2085,6 +2088,9 @@ async function generateProofs(inputs, elfPath, options) {
       cwd: process.cwd()
     });
     
+    // Save detailed proof generation output to log file
+    await saveProofGenerationLog(result, input.inputPath, 'run');
+    
     results.push({
       input: input.inputPath,
       proof: result.stdout,
@@ -2725,6 +2731,68 @@ async function statsCommand(options) {
 }
 
 /**
+ * Save proof generation output to a detailed log file
+ */
+async function saveProofGenerationLog(output, inputFile, operation = 'prove') {
+  try {
+    const projectRoot = process.cwd();
+    const logDir = path.join(projectRoot, '.zisk-build', 'logs');
+    
+    // Ensure log directory exists
+    await fs.ensureDir(logDir);
+    
+    // Create timestamp for log file
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const logFile = path.join(logDir, `proof-generation-${operation}-${timestamp}.log`);
+    
+    // Prepare log content
+    const logContent = {
+      timestamp: new Date().toISOString(),
+      operation,
+      inputFile,
+      output: {
+        stdout: output.stdout || '',
+        stderr: output.stderr || '',
+        exitCode: output.exitCode || 0,
+        duration: output.duration || 0
+      }
+    };
+    
+    // Save to log file
+    await fs.writeFile(logFile, JSON.stringify(logContent, null, 2));
+    
+    // Also save a human-readable version
+    const humanLogFile = path.join(logDir, `proof-generation-${operation}-${timestamp}.txt`);
+    const humanContent = [
+      `ZisK Proof Generation Log`,
+      `=======================`,
+      `Timestamp: ${logContent.timestamp}`,
+      `Operation: ${operation}`,
+      `Input File: ${inputFile}`,
+      `Duration: ${output.duration || 0}ms`,
+      `Exit Code: ${output.exitCode || 0}`,
+      ``,
+      `STDOUT:`,
+      `-------`,
+      output.stdout || '(no output)',
+      ``,
+      `STDERR:`,
+      `-------`,
+      output.stderr || '(no errors)',
+      ``
+    ].join('\n');
+    
+    await fs.writeFile(humanLogFile, humanContent);
+    
+    return { logFile, humanLogFile };
+    
+  } catch (error) {
+    console.warn(`Failed to save proof generation log: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Analyze existing proof generation data without regenerating proofs
  */
 async function analyzeExistingProofData() {
@@ -2744,11 +2812,29 @@ async function analyzeExistingProofData() {
       return;
     }
     
-    // Check if we have recent proof generation logs
-    const logFiles = [
-      path.join(projectRoot, '.zisk-build', 'logs', 'default.log'),
-      path.join(projectRoot, 'proof', '.zisk-build', 'logs', 'default.log')
-    ];
+    // Check for detailed proof generation logs
+    const logDir = path.join(projectRoot, '.zisk-build', 'logs');
+    const logFiles = [];
+    
+    if (fs.existsSync(logDir)) {
+      const files = await fs.readdir(logDir);
+      const proofLogFiles = files
+        .filter(file => file.startsWith('proof-generation-') && file.endsWith('.txt'))
+        .sort()
+        .reverse(); // Most recent first
+      
+      for (const file of proofLogFiles) {
+        logFiles.push(path.join(logDir, file));
+      }
+    }
+    
+    // Fallback to old log files if no detailed logs found
+    if (logFiles.length === 0) {
+      logFiles.push(
+        path.join(projectRoot, '.zisk-build', 'logs', 'default.log'),
+        path.join(projectRoot, 'proof', '.zisk-build', 'logs', 'default.log')
+      );
+    }
     
     let foundLogs = false;
     
@@ -3144,5 +3230,6 @@ module.exports = {
   displayGettingStarted,
   analyzeProofGenerationLogs,
   runProofGenerationAnalysis,
-  analyzeExistingProofData
+  analyzeExistingProofData,
+  saveProofGenerationLog
 };
