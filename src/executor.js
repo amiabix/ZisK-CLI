@@ -8,7 +8,7 @@ const { promisify } = require('util');
 const path = require('path');
 const fs = require('fs-extra');
 const os = require('os');
-const pLimit = require('p-limit');
+const { default: pLimit } = require('p-limit');
 const { Logger } = require('./logger');
 const { ErrorHandler, BuildError, ExecutionError } = require('./errors');
 
