@@ -12,6 +12,8 @@ const inquirer = require('inquirer');
 
 const { Logger } = require('./logger');
 const { ConfigurationManager } = require('./config');
+const { SystemDetector } = require('./system');
+const { ProjectDiscoverer } = require('./project');
 const { PlatformManager } = require('./platform');
 const { CommandExecutor, ZiskCommandBuilder } = require('./executor');
 const { InputConverter } = require('./converter');
@@ -20,6 +22,8 @@ const { ErrorHandler } = require('./errors');
 // Initialize core services
 const logger = new Logger();
 const configManager = new ConfigurationManager();
+const systemDetector = new SystemDetector();
+const projectDiscoverer = new ProjectDiscoverer();
 const platform = new PlatformManager();
 const executor = new CommandExecutor();
 const converter = new InputConverter();
@@ -50,7 +54,7 @@ async function statusCommand() {
     console.log(chalk.green(`Build Profile: ${buildProfile}`));
     
     // Check build status
-    const elfPath = `target/riscv64ima-zisk-zkvm-elf/${buildProfile}/${projectName}`;
+    const elfPath = await getExpectedElfPath(buildProfile, projectName);
     if (await fs.pathExists(elfPath)) {
       const stats = await fs.stat(elfPath);
       console.log(chalk.green(`Built: ${stats.mtime.toLocaleString()}`));
@@ -193,37 +197,28 @@ async function initCommand(name, options) {
       throw new Error(`Project directory not created: ${projectDir}`);
     }
     
-    // Read actual package name from Cargo.toml
-    let actualProjectName = projectName;
-    const cargoTomlPath = path.join(process.cwd(), 'Cargo.toml');
-    if (fs.existsSync(cargoTomlPath)) {
-      try {
-        const cargoContent = await fs.readFile(cargoTomlPath, 'utf8');
-        const nameMatch = cargoContent.match(/name\s*=\s*"([^"]+)"/);
-        if (nameMatch) {
-          actualProjectName = nameMatch[1];
-          console.log(`Using package name from Cargo.toml: ${actualProjectName}`);
-        }
-      } catch (error) {
-        console.warn('Could not read Cargo.toml for package name, using directory name');
-      }
-    }
+    // Discover project information using hardcoded logic
+    const projectInfo = await projectDiscoverer.discoverProject(process.cwd());
     
-    // Create .zisk-env file to store project name for future commands
+    // Create .env file with discovered information and optional overrides
     const envContent = `# ZisK Project Configuration
-PROJECT_NAME=${actualProjectName}
-PROJECT_TYPE=zisk
-PROJECT_VERSION=1.0.0
+# This file contains optional overrides for project discovery
+
+# Project Configuration
+PROJECT_NAME=${projectInfo.name}
+INPUT_DIRECTORY=${projectInfo.inputFiles.length > 0 ? path.dirname(projectInfo.inputFiles[0]) : './inputs'}
+OUTPUT_DIRECTORY=${projectInfo.outputDirectory}
 
 # Build Configuration
-BUILD_PROFILE=release
-BUILD_FEATURES=
-BUILD_TARGET=
+BUILD_TARGET=${projectInfo.buildTarget}
+BUILD_PROFILE=${projectInfo.buildProfile}
+BUILD_FEATURES=${projectInfo.features || ''}
 
 # Execution Configuration
 EXECUTION_MAX_STEPS=1000000
-EXECUTION_TIMEOUT=30000
-EXECUTION_PARALLEL=false
+EXECUTION_MEMORY_LIMIT=8GB
+
+# Note: System paths are auto-detected and don't need to be configured here
 
 # Input Configuration
 INPUT_DEFAULT_FORMAT=binary
@@ -243,8 +238,8 @@ LOG_VERBOSE=false
 LOG_SAVE_TO_FILE=true
 `;
     
-    await fs.writeFile('.zisk-env', envContent, 'utf8');
-    console.log('Created .zisk-env configuration file');
+    await fs.writeFile('.env', envContent, 'utf8');
+    console.log('Created .env configuration file');
     
     console.log('Project initialized successfully!');
     console.log(`\nNext steps:`);
@@ -268,15 +263,15 @@ async function buildCommand(options) {
   const spinner = ora('Building ZISK program...').start();
   
   try {
-    // Load configuration from .zisk-env file
-    const config = await loadProjectConfig(process.cwd());
+    // Load complete configuration (system + project + .env overrides)
+    const config = await configManager.loadConfiguration(process.cwd());
     
     // Check if this is a basic Rust project or ZisK project
     const isBasicProject = await checkBasicRustProject();
     
     if (isBasicProject) {
       // Build using standard cargo
-      const profile = options.profile || config?.BUILD_PROFILE || 'release';
+      const profile = options.profile || config.buildProfile || 'release';
       const buildArgs = ['build'];
       
       if (profile === 'release') {
@@ -305,20 +300,24 @@ async function buildCommand(options) {
       return { ...buildResult, type: 'basic' };
       
     } else {
-      // Build using cargo-zisk
-      const profile = options.profile || config?.BUILD_PROFILE || 'release';
+      // Build using cargo-zisk - use configuration from system detection
+      const profile = options.profile || config.buildProfile || 'release';
       const buildArgs = [];
       
       if (profile === 'release') {
         buildArgs.push('--release');
       }
       
-      if (options.features) {
-        buildArgs.push('--features', options.features);
+      // Use features from .env overrides if not provided via options
+      const features = options.features || config.buildFeatures;
+      if (features) {
+        buildArgs.push('--features', features);
       }
       
-      if (options.target) {
-        buildArgs.push('--target', options.target);
+      // Use target from .env overrides if not provided via options
+      const target = options.target || config.buildTarget;
+      if (target) {
+        buildArgs.push('--target', target);
       }
       
       // Stop spinner temporarily to show command execution
@@ -333,7 +332,7 @@ async function buildCommand(options) {
       spinner.succeed('Build completed successfully');
       
       // Verify ELF file was created
-      const elfPath = await getExpectedElfPath(profile);
+      const elfPath = await getExpectedElfPath(profile, config.projectName);
       if (!fs.existsSync(elfPath)) {
         throw new Error(`ELF file not found at expected path: ${elfPath}`);
       }
@@ -359,6 +358,9 @@ async function runCommand(options) {
   const spinner = ora('Running ZISK pipeline...').start();
   
   try {
+    // Load configuration from .zisk-env file
+    const config = await loadProjectConfig(process.cwd());
+    
     // Check if this is a basic Rust project
     const isBasicProject = await checkBasicRustProject();
     
@@ -508,6 +510,9 @@ async function proveCommand(options) {
   const spinner = ora('Generating zero-knowledge proof...').start();
   
   try {
+    // Load complete configuration (system + project + .env overrides)
+    const config = await configManager.loadConfiguration(process.cwd());
+    
     // Check system memory before starting proof generation
     const { PlatformManager } = require('./platform');
     const platform = new PlatformManager();
@@ -543,17 +548,15 @@ async function proveCommand(options) {
       // Add input file
       proveArgs.push('-i', input.outputPath);
       
-      // Add output directory
-      const outputDir = options.output || './proofs';
+      // Add output directory - use OUTPUT_DIRECTORY from .zisk-env if not provided
+      const outputDir = options.output || config.outputDirectory || './proofs';
       proveArgs.push('-o', outputDir);
       
-      // Add witness library path
-      const libPaths = platform.resolveLibraryPaths();
-      proveArgs.push('-w', libPaths.witnessLibrary);
+      // Add witness library path (from system detection)
+      proveArgs.push('-w', config.witnessLibPath);
       
-      // Add proving key path
-      const provingKeyPath = platform.ziskPaths.provingKey;
-      proveArgs.push('-k', provingKeyPath);
+      // Add proving key path (from system detection)
+      proveArgs.push('-k', config.provingKeyPath);
       
       // Add aggregation flag
       if (options.aggregate) {
@@ -895,23 +898,14 @@ async function statusCommand(options) {
   console.log(chalk.blue('ZisK Project Status\n'));
   
   try {
-    // Check if we're in a ZisK project
-    if (!await fs.pathExists('.zisk-env')) {
-      console.log(chalk.red('Not in a ZisK project directory'));
-      console.log(chalk.yellow('Run "zisk-dev init --name <project-name>" to initialize a project'));
-      return;
-    }
+    // Load complete configuration (system + project + .env overrides)
+    const config = await configManager.loadConfiguration(process.cwd());
     
-    // Read project info
-    const envContent = await fs.readFile('.zisk-env', 'utf8');
-    const projectName = envContent.match(/PROJECT_NAME=(.+)/)?.[1];
-    const buildProfile = envContent.match(/BUILD_PROFILE=(.+)/)?.[1] || 'release';
-    
-    console.log(chalk.green(`Project: ${projectName}`));
-    console.log(chalk.green(`Build Profile: ${buildProfile}`));
+    console.log(chalk.green(`Project: ${config.projectName}`));
+    console.log(chalk.green(`Build Profile: ${config.buildProfile}`));
     
     // Check build status
-    const elfPath = `target/riscv64ima-zisk-zkvm-elf/${buildProfile}/${projectName}`;
+    const elfPath = await getExpectedElfPath(config.buildProfile, config.projectName);
     if (await fs.pathExists(elfPath)) {
       const stats = await fs.stat(elfPath);
       console.log(chalk.green(`Built: ${stats.mtime.toLocaleString()}`));
@@ -1705,19 +1699,20 @@ function displayBuildInfo(buildResult, elfPath) {
 }
 
 async function getExpectedElfPath(profile, projectName = null) {
-  const { PlatformManager } = require('./platform');
-  const fs = require('fs-extra');
-  const platform = new PlatformManager();
   const targetDir = profile === 'release' ? 'release' : 'debug';
   
-  // Use provided project name or get from configuration
+  // Use project name if provided, otherwise discover it
   let finalProjectName = projectName;
   if (!finalProjectName) {
-    finalProjectName = await getProjectName(process.cwd());
+    const config = await configManager.loadConfiguration(process.cwd());
+    finalProjectName = config.projectName;
   }
   
-  // For ZisK projects, the ELF file is in the riscv64ima-zisk-zkvm-elf target
-  return `target/riscv64ima-zisk-zkvm-elf/${targetDir}/${finalProjectName}`;
+  // Use discovered build target
+  const config = await configManager.loadConfiguration(process.cwd());
+  const buildTarget = config.buildTarget;
+  
+  return `target/${buildTarget}/${targetDir}/${finalProjectName}`;
 }
 
 async function setupROM(elfPath, options) {
@@ -1734,11 +1729,16 @@ async function setupROM(elfPath, options) {
 }
 
 async function executeSingleInput(input, elfPath, options) {
+  // Load configuration from .zisk-env file
+  const config = await loadProjectConfig(process.cwd());
+  
   // Execute single input using ziskemu
   const ziskemuArgs = ['-e', elfPath, '-i', input.outputPath];
   
-  if (options.maxSteps) {
-    ziskemuArgs.push('-n', options.maxSteps.toString());
+  // Use maxSteps from .zisk-env if not provided via options
+  const maxSteps = options.maxSteps || config?.EXECUTION_MAX_STEPS;
+  if (maxSteps) {
+    ziskemuArgs.push('-n', maxSteps.toString());
   }
   
   if (options.metrics) {
@@ -1763,10 +1763,14 @@ async function executeSingleInput(input, elfPath, options) {
 async function generateProofs(inputs, elfPath, options) {
   const results = [];
   
+  // Load configuration from .zisk-env file
+  const config = await loadProjectConfig(process.cwd());
+  
   for (const input of inputs) {
     const proveArgs = ['-e', elfPath, '-i', input.outputPath];
     
-    const outputDir = options.output || './proofs';
+    // Use OUTPUT_DIRECTORY from .zisk-env if not provided
+    const outputDir = options.output || config?.OUTPUT_DIRECTORY || './proofs';
     proveArgs.push('-o', outputDir);
     
     if (options.aggregate) {
@@ -1834,10 +1838,26 @@ async function getInputFiles(options) {
   const config = await loadProjectConfig(process.cwd());
   const defaultInputFile = config?.INPUT_DEFAULT_FILE || 'input.bin';
   
-  // Check if the default input file exists in build directory
-  const buildInputPath = path.join('build', defaultInputFile);
-  if (fs.existsSync(buildInputPath)) {
-    return [buildInputPath];
+  // Check if build.rs exists - if so, prioritize build/ directory for input files
+  const buildRsPath = path.join(process.cwd(), 'build.rs');
+  if (fs.existsSync(buildRsPath)) {
+    console.log('build.rs detected - looking for input files in build/ directory');
+    
+    // Check if the default input file exists in build directory
+    const buildInputPath = path.join('build', defaultInputFile);
+    if (fs.existsSync(buildInputPath)) {
+      return [buildInputPath];
+    }
+    
+    // Look for any .bin files in build directory
+    const buildDir = 'build';
+    if (fs.existsSync(buildDir)) {
+      const buildFiles = glob.sync(`${buildDir}/*.bin`);
+      if (buildFiles.length > 0) {
+        console.log(`Found ${buildFiles.length} input file(s) in build/ directory`);
+        return buildFiles;
+      }
+    }
   }
   
   // Check if the default input file exists in inputs directory
@@ -2072,23 +2092,14 @@ async function analyticsCommand(options) {
   console.log(chalk.blue('ZisK Analytics Dashboard\n'));
   
   try {
-    // Check if we're in a ZisK project
-    if (!await fs.pathExists('.zisk-env')) {
-      console.log(chalk.red('Not in a ZisK project directory'));
-      console.log(chalk.yellow('Run "zisk-dev init --name <project-name>" to initialize a project'));
-      return;
-    }
+    // Load complete configuration (system + project + .env overrides)
+    const config = await configManager.loadConfiguration(process.cwd());
     
-    // Read project info
-    const envContent = await fs.readFile('.zisk-env', 'utf8');
-    const projectName = envContent.match(/PROJECT_NAME=(.+)/)?.[1];
-    const buildProfile = envContent.match(/BUILD_PROFILE=(.+)/)?.[1] || 'release';
-    
-    console.log(chalk.green(`Project: ${projectName}`));
-    console.log(chalk.green(`Build Profile: ${buildProfile}\n`));
+    console.log(chalk.green(`Project: ${config.projectName}`));
+    console.log(chalk.green(`Build Profile: ${config.buildProfile}\n`));
     
     // Check build status
-    const elfPath = `target/riscv64ima-zisk-zkvm-elf/${buildProfile}/${projectName}`;
+    const elfPath = await getExpectedElfPath(config.buildProfile, config.projectName);
     if (await fs.pathExists(elfPath)) {
       const stats = await fs.stat(elfPath);
       console.log(chalk.blue('Build Information:'));
@@ -2097,26 +2108,42 @@ async function analyticsCommand(options) {
       console.log(`  Last Built: ${stats.mtime.toLocaleString()}\n`);
     }
     
-    // Check proof files with detailed analysis
-    const proofDir = 'proof';
+    // Check proof files with detailed analysis - look in both 'proof' and 'proofs' directories
+    const proofDirs = ['proof', 'proofs'];
     let proofAnalytics = null;
-    if (await fs.pathExists(proofDir)) {
-      const proofFiles = await fs.readdir(proofDir);
-      const proofFilesWithStats = [];
-      let totalProofSize = 0;
-      
-      for (const file of proofFiles) {
-        if (file.endsWith('.bin') || file.endsWith('.json')) {
-          const filePath = path.join(proofDir, file);
-          const stats = await fs.stat(filePath);
-          proofFilesWithStats.push({
-            name: file,
-            size: stats.size,
-            mtime: stats.mtime
-          });
-          totalProofSize += stats.size;
+    let proofDir = null;
+    let proofFilesWithStats = [];
+    let totalProofSize = 0;
+    
+    for (const dir of proofDirs) {
+      if (await fs.pathExists(dir)) {
+        const proofFiles = await fs.readdir(dir);
+        const files = [];
+        let size = 0;
+        
+        for (const file of proofFiles) {
+          if (file.endsWith('.bin') || file.endsWith('.json')) {
+            const filePath = path.join(dir, file);
+            const stats = await fs.stat(filePath);
+            files.push({
+              name: file,
+              size: stats.size,
+              mtime: stats.mtime
+            });
+            size += stats.size;
+          }
+        }
+        
+        if (files.length > 0) {
+          proofDir = dir;
+          proofFilesWithStats = files;
+          totalProofSize = size;
+          break; // Use the first directory that has proof files
         }
       }
+    }
+    
+    if (proofDir) {
       
       if (proofFilesWithStats.length > 0) {
         console.log(chalk.blue('Proof Files:'));
@@ -2210,8 +2237,8 @@ async function analyticsCommand(options) {
       console.log(chalk.yellow('  ⚠️  No input files found in build/ directory'));
     }
     
-    if (await fs.pathExists(proofDir)) {
-      console.log(chalk.green('  ✅ Proof files available'));
+    if (proofDir && proofFilesWithStats.length > 0) {
+      console.log(chalk.green(`  ✅ Proof files available (${proofDir}/)`));
     } else {
       console.log(chalk.yellow('  ⚠️  No proof files found - run "zisk-dev prove" to generate'));
     }
