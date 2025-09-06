@@ -358,10 +358,20 @@ async function initCommand(name, options) {
   try {
     const targetDir = process.cwd();
     // Use positional argument first, then fall back to --name option
-    const projectName = name || options.name;
+    let projectName = name || options.name;
     
+    // If no project name provided, try to detect from existing project
     if (!projectName) {
-      throw new Error('Project name is required. Use: zisk-dev init <project-name> or zisk-dev init --name <project-name>');
+      console.log('No project name provided, detecting from existing project...');
+      
+      // Check if we're in an existing ZisK project
+      const isExistingProject = await checkExistingZiskProject(targetDir);
+      if (isExistingProject) {
+        projectName = await getProjectName(targetDir);
+        console.log(`Detected existing project: ${projectName}`);
+      } else {
+        throw new Error('Project name is required. Use: zisk-dev init <project-name> or zisk-dev init --name <project-name>');
+      }
     }
 
     // Security: Validate and sanitize project name
@@ -375,33 +385,18 @@ async function initCommand(name, options) {
       throw new Error('Project name must contain only letters, numbers, underscores, and hyphens');
     }
     
-    console.log(`Creating ZisK project: ${projectName}`);
+    // Check if we're configuring an existing project or creating a new one
+    const isExistingProject = await checkExistingZiskProject(targetDir);
     
-    // Check if cargo-zisk is available
-    try {
-      await executor.executeCommand('cargo-zisk', ['--version'], { cwd: targetDir });
-    } catch (error) {
-      throw new Error('cargo-zisk is not installed. Please install ZisK first: https://0xpolygonhermez.github.io/zisk/getting_started/installation.html');
-    }
-    
-    // Create new project using cargo-zisk sdk new (following official ZisK docs)
-    console.log(`Running: cargo-zisk sdk new ${projectName}`);
-    await executor.executeCommand('cargo-zisk', ['sdk', 'new', projectName], { cwd: targetDir });
-    
-    // Change to project directory
-    const projectDir = path.join(targetDir, projectName);
-    if (fs.existsSync(projectDir)) {
-      process.chdir(projectDir);
-      console.log(`Changed to project directory: ${projectName}`);
-    } else {
-      throw new Error(`Project directory not created: ${projectDir}`);
-    }
-    
-    // Discover project information using hardcoded logic
-    const projectInfo = await projectDiscoverer.discoverProject(process.cwd());
-    
-    // Create .env file with discovered information and optional overrides
-    const envContent = `# ZisK Project Configuration
+    if (isExistingProject) {
+      // Configure existing project
+      console.log(`Configuring existing ZisK project: ${projectName}`);
+      
+      // Discover project information using hardcoded logic
+      const projectInfo = await projectDiscoverer.discoverProject(targetDir);
+      
+      // Create .env file with discovered information and optional overrides
+      const envContent = `# ZisK Project Configuration
 # This file contains optional overrides for project discovery
 
 # Project Configuration
@@ -437,16 +432,91 @@ LOG_LEVEL=info
 LOG_VERBOSE=false
 LOG_SAVE_TO_FILE=true
 `;
-    
-    await fs.writeFile('.env', envContent, 'utf8');
-    console.log('Created .env configuration file');
-    
-    console.log('Project initialized successfully!');
-    console.log(`\nNext steps:`);
-    console.log(`1. Edit src/main.rs to write your ZisK program`);
-    console.log(`2. Create input.bin file with your input data`);
-    console.log(`3. Run: zisk-dev build`);
-    console.log(`4. Run: zisk-dev run`);
+      
+      await fs.writeFile('.env', envContent, 'utf8');
+      console.log('Created .env configuration file');
+      
+      console.log('Existing project configured successfully!');
+      console.log(`\nNext steps:`);
+      console.log(`1. Run: zisk-dev build`);
+      console.log(`2. Run: zisk-dev run`);
+      console.log(`3. Run: zisk-dev prove`);
+      
+    } else {
+      // Create new project
+      console.log(`Creating new ZisK project: ${projectName}`);
+      
+      // Check if cargo-zisk is available
+      try {
+        await executor.executeCommand('cargo-zisk', ['--version'], { cwd: targetDir });
+      } catch (error) {
+        throw new Error('cargo-zisk is not installed. Please install ZisK first: https://0xpolygonhermez.github.io/zisk/getting_started/installation.html');
+      }
+      
+      // Create new project using cargo-zisk sdk new (following official ZisK docs)
+      console.log(`Running: cargo-zisk sdk new ${projectName}`);
+      await executor.executeCommand('cargo-zisk', ['sdk', 'new', projectName], { cwd: targetDir });
+      
+      // Change to project directory
+      const projectDir = path.join(targetDir, projectName);
+      if (fs.existsSync(projectDir)) {
+        process.chdir(projectDir);
+        console.log(`Changed to project directory: ${projectName}`);
+      } else {
+        throw new Error(`Project directory not created: ${projectDir}`);
+      }
+      
+      // Discover project information using hardcoded logic
+      const projectInfo = await projectDiscoverer.discoverProject(process.cwd());
+      
+      // Create .env file with discovered information and optional overrides
+      const envContent = `# ZisK Project Configuration
+# This file contains optional overrides for project discovery
+
+# Project Configuration
+PROJECT_NAME=${projectInfo.name}
+INPUT_DIRECTORY=${projectInfo.inputFiles.length > 0 ? path.dirname(projectInfo.inputFiles[0]) : './inputs'}
+OUTPUT_DIRECTORY=${projectInfo.outputDirectory}
+
+# Build Configuration
+BUILD_TARGET=${projectInfo.buildTarget}
+BUILD_PROFILE=${projectInfo.buildProfile}
+BUILD_FEATURES=${projectInfo.features || ''}
+
+# Execution Configuration
+EXECUTION_MAX_STEPS=1000000
+EXECUTION_MEMORY_LIMIT=8GB
+
+# Note: System paths are auto-detected and don't need to be configured here
+
+# Input Configuration
+INPUT_DEFAULT_FORMAT=binary
+INPUT_AUTO_CONVERT=true
+INPUT_CUSTOM_NAMES=true
+INPUT_DEFAULT_FILE=input.bin
+
+# Output Configuration
+OUTPUT_SAVE_PROOFS=true
+OUTPUT_SAVE_WITNESSES=true
+OUTPUT_SAVE_LOGS=true
+OUTPUT_DIRECTORY=outputs
+
+# Logging Configuration
+LOG_LEVEL=info
+LOG_VERBOSE=false
+LOG_SAVE_TO_FILE=true
+`;
+      
+      await fs.writeFile('.env', envContent, 'utf8');
+      console.log('Created .env configuration file');
+      
+      console.log('Project initialized successfully!');
+      console.log(`\nNext steps:`);
+      console.log(`1. Edit src/main.rs to write your ZisK program`);
+      console.log(`2. Create input.bin file with your input data`);
+      console.log(`3. Run: zisk-dev build`);
+      console.log(`4. Run: zisk-dev run`);
+    }
     
   } catch (error) {
     console.error('Failed to initialize project:', error.message);
