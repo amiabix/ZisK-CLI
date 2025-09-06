@@ -1532,7 +1532,7 @@ async function checkBasicRustProject() {
   try {
     const cargoContent = await fs.readFile(cargoTomlPath, 'utf8');
     // Check if it's a basic Rust project (not ZisK-specific)
-    return !cargoContent.includes('zisk') && !cargoContent.includes('cargo-zisk');
+    return !cargoContent.includes('zisk') && !cargoContent.includes('cargo-zisk') && !cargoContent.includes('ziskos');
   } catch (error) {
     return false;
   }
