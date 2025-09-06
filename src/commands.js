@@ -10,7 +10,7 @@ const chalk = require('chalk');
 const ora = require('ora').default;
 const inquirer = require('inquirer');
 const os = require('os');
-const { default: pLimit } = require('p-limit');
+const pLimit = require('p-limit');
 
 const { Logger } = require('./logger');
 const { ConfigurationManager } = require('./config');
