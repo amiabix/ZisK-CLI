@@ -39,20 +39,52 @@ npm install -g @abix/zisk-dev-cli
    cd my-project
    ```
 
-2. **Build the project**:
+2. **Run the complete pipeline** (recommended):
    ```bash
+   zisk-dev run --input data.json
+   ```
+   This command will: build → execute → generate proofs → verify
+
+3. **Alternative: Step-by-step workflow**:
+   ```bash
+   # Build the program
    zisk-dev build
+   
+   # Execute to generate witnesses
+   zisk-dev execute --input data.json
+   
+   # Generate proofs from witnesses
+   zisk-dev prove --input data.json
    ```
 
-3. **Run the program**:
-   ```bash
-   zisk-dev run
-   ```
+## Workflow Overview
 
-4. **Generate proofs**:
-   ```bash
-   zisk-dev prove
-   ```
+The ZisK CLI supports two main workflows:
+
+### **Complete Pipeline (Recommended)**
+```bash
+zisk-dev run --input data.json
+```
+- Builds the program
+- Executes with input data
+- Generates witnesses
+- Creates zero-knowledge proofs
+- Verifies the proofs
+
+### **Step-by-Step Workflow**
+```bash
+# 1. Build
+zisk-dev build
+
+# 2. Execute (generates witnesses)
+zisk-dev execute --input data.json
+
+# 3. Generate proofs from witnesses
+zisk-dev prove --input data.json
+
+# 4. Verify proofs (optional)
+zisk-dev verify --proof ./proofs/proof.json
+```
 
 ## Commands
 
@@ -92,12 +124,15 @@ zisk-dev build --profile release --target riscv64ima-zisk-zkvm-elf
 ```
 
 #### `zisk-dev run`
-Execute the built ZisK program with input processing.
+**Complete ZisK pipeline** - Build, execute, generate proofs, and verify in one command.
 
 **Options**:
 - `--input <file>`: Input file path
 - `--inputs <pattern>`: Input file pattern (glob)
 - `--max-steps <number>`: Maximum execution steps
+- `--skip-prove`: Skip proof generation
+- `--skip-verify`: Skip proof verification
+- `--skip-setup`: Skip ROM setup
 - `--metrics`: Show execution metrics
 - `--stats`: Show execution statistics
 
@@ -107,17 +142,27 @@ zisk-dev run --input data.json --max-steps 1000000 --metrics
 ```
 
 #### `zisk-dev execute`
-Execute multiple inputs with parallel processing.
+Execute the ZisK program with input processing **without proof generation**.
 
 **Options**:
+- `--input <file>`: Input file path
+- `--inputs <pattern>`: Input file pattern (glob)
 - `--parallel`: Run inputs in parallel
 - `--max-steps <number>`: Maximum execution steps
 - `--metrics`: Show execution metrics
+- `--stats`: Show execution statistics
+
+**Example**:
+```bash
+zisk-dev execute --input data.json --max-steps 1000000 --metrics
+```
 
 ### Proof Generation
 
 #### `zisk-dev prove`
-Generate zero-knowledge proofs for program execution.
+Generate zero-knowledge proofs from existing execution data (witnesses).
+
+**Note**: This command requires that the program has already been executed to generate witness files. Use `zisk-dev execute` first, or use `zisk-dev run` for the complete pipeline.
 
 **Options**:
 - `--input <file>`: Input file path
@@ -129,7 +174,11 @@ Generate zero-knowledge proofs for program execution.
 
 **Example**:
 ```bash
-zisk-dev prove --inputs "data/*.json" --output ./proofs --verify
+# First execute to generate witnesses
+zisk-dev execute --input data.json
+
+# Then generate proofs from witnesses
+zisk-dev prove --input data.json --output ./proofs --verify
 ```
 
 #### `zisk-dev verify`
