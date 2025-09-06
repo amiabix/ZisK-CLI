@@ -1516,7 +1516,7 @@ async function checkExistingZiskProject(targetDir) {
   
   try {
     const cargoContent = await fs.readFile(cargoTomlPath, 'utf8');
-    return cargoContent.includes('zisk') || cargoContent.includes('cargo-zisk');
+    return cargoContent.includes('zisk') || cargoContent.includes('cargo-zisk') || cargoContent.includes('ziskos');
   } catch (error) {
     return false;
   }
