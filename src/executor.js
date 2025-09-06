@@ -7,6 +7,8 @@ const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
 const path = require('path');
 const fs = require('fs-extra');
+const os = require('os');
+const pLimit = require('p-limit');
 const { Logger } = require('./logger');
 const { ErrorHandler, BuildError, ExecutionError } = require('./errors');
 
@@ -20,6 +22,175 @@ class CommandExecutor {
       'cargo', 'cargo-zisk', 'ziskemu', 'rustc', 'rustup', 'node', 'npm', 'tar', 'curl', 'wget',
       'git', 'make', 'gcc', 'clang', 'mpirun', 'nvidia-smi'
     ]);
+    
+    // Add parallelism control
+    this.processPool = pLimit(this.getMaxConcurrent());
+    
+    // Safe environment variables
+    this.safeEnvVars = new Set([
+      'OMP_NUM_THREADS', 'RAYON_NUM_THREADS', 'RUST_LOG', 'CARGO_TARGET_DIR',
+      'PATH', 'HOME', 'USER', 'SHELL', 'TMPDIR', 'TMP', 'TEMP'
+    ]);
+    
+    // Add ZISK_* variables
+    this.addZiskEnvVars();
+  }
+
+  /**
+   * Get maximum concurrent processes to prevent system overload
+   */
+  getMaxConcurrent() {
+    const envValue = parseInt(process.env.ZISK_MAX_CONCURRENT);
+    const defaultValue = Math.max(1, Math.floor(os.cpus().length / 2));
+    const maxAllowed = 16;
+    
+    if (envValue > 0 && envValue <= maxAllowed) {
+      return envValue;
+    }
+    
+    return Math.min(defaultValue, maxAllowed);
+  }
+
+  /**
+   * Add ZISK_* environment variables to safe list
+   * Use regex pattern and explicitly block dangerous variables
+   */
+  addZiskEnvVars() {
+    const env = process.env;
+    const ziskPattern = /^ZISK_/;
+    
+    for (const key in env) {
+      if (ziskPattern.test(key)) {
+        this.safeEnvVars.add(key);
+      }
+    }
+    
+    // Explicitly block dangerous variables even if they start with ZISK_
+    const blockedVars = ['ZISK_PATH', 'ZISK_LD_LIBRARY_PATH', 'ZISK_LD_PRELOAD'];
+    blockedVars.forEach(varName => this.safeEnvVars.delete(varName));
+  }
+
+  /**
+   * Security: Validate and normalize file paths to prevent traversal attacks
+   */
+  validateAndNormalizePath(inputPath, allowAbsolute = false, baseDir = process.cwd()) {
+    if (!inputPath || typeof inputPath !== 'string') {
+      throw new Error('Invalid path provided');
+    }
+
+    // Normalize the path
+    const normalized = path.normalize(inputPath);
+    
+    // Check for absolute paths if not allowed
+    if (!allowAbsolute && path.isAbsolute(normalized)) {
+      throw new Error('Absolute paths not allowed');
+    }
+
+    // Check for path traversal attempts
+    if (normalized.includes('..') || normalized.includes('~')) {
+      throw new Error('Path traversal detected');
+    }
+
+    // Resolve against base directory to ensure it's within bounds
+    const resolved = path.resolve(baseDir, normalized);
+    const baseResolved = path.resolve(baseDir);
+    
+    if (!resolved.startsWith(baseResolved)) {
+      throw new Error('Path outside allowed directory');
+    }
+
+    return normalized;
+  }
+
+  /**
+   * Sanitize environment variables for process execution
+   */
+  sanitizeEnvironment(env = {}) {
+    const sanitized = {};
+    
+    for (const [key, value] of Object.entries(env)) {
+      if (this.safeEnvVars.has(key)) {
+        // For paths, validate boundaries instead of aggressive sanitization
+        if (key.includes('PATH') || key.includes('DIR')) {
+          sanitized[key] = this.validatePathBoundaries(value);
+        } else {
+          // Basic sanitization for non-path values
+          sanitized[key] = String(value).replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+        }
+      }
+    }
+    
+    return sanitized;
+  }
+
+  /**
+   * Validate path boundaries without over-sanitizing
+   * @param {string} pathValue - Path value to validate
+   * @returns {string} Validated path
+   */
+  validatePathBoundaries(pathValue) {
+    if (typeof pathValue !== 'string') {
+      return String(pathValue);
+    }
+    
+    // Only remove control characters, preserve legitimate path characters
+    return pathValue.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+  }
+
+  /**
+   * Sanitize string inputs to prevent injection
+   */
+  sanitizeString(input) {
+    if (typeof input !== 'string') {
+      return String(input);
+    }
+    
+    // Remove control characters and potential injection patterns
+    return input
+      .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remove control characters
+      .replace(/[;&|`$(){}[\]\\]/g, '') // Remove shell metacharacters
+      .trim();
+  }
+
+  /**
+   * Redact sensitive values from logs
+   * @param {string} message - Log message to redact
+   * @returns {string} Redacted message
+   */
+  redactSensitiveValues(message) {
+    if (typeof message !== 'string') {
+      return String(message);
+    }
+
+    // Redact sensitive patterns
+    let redacted = message
+      .replace(/--proving-key\s+\S+/g, '--proving-key [REDACTED]')
+      .replace(/--witness\s+\S+/g, '--witness [REDACTED]')
+      .replace(/--key\s+\S+/g, '--key [REDACTED]')
+      .replace(/--secret\s+\S+/g, '--secret [REDACTED]')
+      .replace(/\/\.ssh\/[^\s]+/g, '/.ssh/[REDACTED]')
+      .replace(/\/\.zisk\/[^\s]+/g, '/.zisk/[REDACTED]')
+      .replace(/password[=:]\s*\S+/gi, 'password=[REDACTED]')
+      .replace(/token[=:]\s*\S+/gi, 'token=[REDACTED]')
+      .replace(/key[=:]\s*\S+/gi, 'key=[REDACTED]');
+
+    return redacted;
+  }
+
+  /**
+   * Validate command arguments
+   */
+  validateCommandArgs(args) {
+    if (!Array.isArray(args)) {
+      throw new Error('Command arguments must be an array');
+    }
+
+    return args.map(arg => {
+      if (typeof arg !== 'string') {
+        throw new Error('All command arguments must be strings');
+      }
+      return this.sanitizeString(arg);
+    });
   }
 
   /**
@@ -33,15 +204,18 @@ class CommandExecutor {
     this.logger.logCommand(command, args, options);
 
     try {
-      // Validate command
-      this.validateCommand(command);
+    // Validate command and arguments
+    this.validateCommand(command);
+    const sanitizedArgs = this.validateCommandArgs(args);
 
       // Prepare execution options
       const execOptions = this.prepareExecutionOptions(options);
       execOptions.startTime = startTime; // Pass start time for duration calculation
 
-      // Execute command with streaming output for better visibility
-      const result = await this.executeWithStreaming(command, args, execOptions);
+      // Use process pool to limit concurrency
+      const result = await this.processPool(() => 
+        this.executeWithStreaming(command, sanitizedArgs, execOptions)
+      );
 
       // Log command result
       this.logger.logCommandResult(command, result);
@@ -139,30 +313,48 @@ class CommandExecutor {
   }
 
   /**
-   * Prepare execution options
+   * Prepare execution options with security hardening
    */
   prepareExecutionOptions(options) {
     const defaultOptions = {
       cwd: process.cwd(),
-      env: { ...process.env },
+      env: this.sanitizeEnvironment(process.env), // Sanitize environment
       stdio: 'pipe',
-      timeout: 300000, // 5 minutes
+      timeout: this.getTimeoutForOperation(options.operation), // Operation-specific timeouts
       maxBuffer: 1024 * 1024 * 10 // 10MB
     };
 
     // Merge with provided options
     const execOptions = { ...defaultOptions, ...options };
 
-    // Add environment variables
+    // Sanitize additional environment variables
     if (options.env) {
-      execOptions.env = { ...execOptions.env, ...options.env };
+      execOptions.env = { 
+        ...execOptions.env, 
+        ...this.sanitizeEnvironment(options.env) 
+      };
     }
 
     return execOptions;
   }
 
   /**
-   * Run command with spawn
+   * Get appropriate timeout for operation type
+   */
+  getTimeoutForOperation(operation) {
+    const timeouts = {
+      'prove': 600000,    // 10 minutes for proof generation
+      'build': 120000,    // 2 minutes for build
+      'run': 120000,      // 2 minutes for execution
+      'verify': 60000,    // 1 minute for verification
+      'default': 300000   // 5 minutes default
+    };
+    
+    return timeouts[operation] || timeouts.default;
+  }
+
+  /**
+   * Run command with spawn and improved process lifecycle
    */
   async runCommand(command, args, options) {
     return new Promise((resolve, reject) => {
@@ -171,15 +363,24 @@ class CommandExecutor {
       let stdout = '';
       let stderr = '';
       let killed = false;
+      let sigtermSent = false;
 
-      // Set up timeout
+      // Security: Improved timeout handling with SIGTERM → SIGKILL escalation
       const timeout = setTimeout(() => {
         if (!killed) {
           killed = true;
-          child.kill('SIGTERM');
+          this.terminateProcess(child, sigtermSent);
           reject(new Error(`Command timed out after ${options.timeout}ms`));
         }
       }, options.timeout);
+
+      // Security: Force kill after additional 30 seconds if SIGTERM doesn't work
+      const forceKillTimeout = setTimeout(() => {
+        if (!killed && sigtermSent) {
+          killed = true;
+          child.kill('SIGKILL');
+        }
+      }, options.timeout + 30000);
 
       // Collect stdout
       child.stdout.on('data', (data) => {
@@ -194,6 +395,7 @@ class CommandExecutor {
       // Handle completion
       child.on('close', (code) => {
         clearTimeout(timeout);
+        clearTimeout(forceKillTimeout);
         
         if (killed) return;
 
@@ -218,6 +420,7 @@ class CommandExecutor {
       // Handle errors
       child.on('error', (error) => {
         clearTimeout(timeout);
+        clearTimeout(forceKillTimeout);
         if (!killed) {
           reject(new ExecutionError(`Command execution failed: ${error.message}`, {
             command,
@@ -226,6 +429,66 @@ class CommandExecutor {
           }));
         }
       });
+    });
+  }
+
+  /**
+   * Terminate process with SIGTERM → SIGKILL escalation
+   * Handles process groups to kill child processes (Windows-compatible)
+   */
+  terminateProcess(child, sigtermSent) {
+    try {
+      if (process.platform === 'win32') {
+        // Windows: Kill child and its children explicitly
+        this.killProcessTree(child.pid, sigtermSent ? 'SIGKILL' : 'SIGTERM');
+      } else {
+        // Unix: Kill process group (negative PID)
+        if (!sigtermSent) {
+          if (child.pid) {
+            process.kill(-child.pid, 'SIGTERM');
+          } else {
+            child.kill('SIGTERM');
+          }
+          sigtermSent = true;
+        } else {
+          // Force kill process group
+          if (child.pid) {
+            process.kill(-child.pid, 'SIGKILL');
+          } else {
+            child.kill('SIGKILL');
+          }
+        }
+      }
+    } catch (error) {
+      // Fallback to killing just the child if process group kill fails
+      try {
+        child.kill(sigtermSent ? 'SIGKILL' : 'SIGTERM');
+      } catch (fallbackError) {
+        console.warn(`Failed to terminate process ${child.pid}: ${fallbackError.message}`);
+      }
+    }
+  }
+
+  /**
+   * Windows-compatible process tree termination
+   * @param {number} pid - Process ID to terminate
+   * @param {string} signal - Signal to send
+   */
+  killProcessTree(pid, signal) {
+    if (process.platform !== 'win32') {
+      // On Unix, use process group kill
+      process.kill(-pid, signal);
+      return;
+    }
+
+    // Windows: Use taskkill to terminate process tree
+    const { spawn } = require('child_process');
+    const taskkill = spawn('taskkill', ['/PID', pid.toString(), '/T', '/F'], {
+      stdio: 'pipe'
+    });
+
+    taskkill.on('error', (error) => {
+      console.warn(`Failed to kill process tree for PID ${pid}: ${error.message}`);
     });
   }
 
@@ -244,8 +507,11 @@ class CommandExecutor {
       const startTime = options.startTime || Date.now();
       const child = spawn(command, args, {
         ...this.prepareExecutionOptions(options),
-        stdio: ['inherit', 'pipe', 'pipe']
+        stdio: ['inherit', 'pipe', 'pipe'],
+        detached: true  // Create new process group for proper cleanup
       });
+
+      // Note: Not calling unref() because we want to capture logs and wait for completion
 
       let stdout = '';
       let stderr = '';

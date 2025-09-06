@@ -13,6 +13,7 @@ class ConfigurationManager {
     this.systemDetector = new SystemDetector();
     this.projectDiscoverer = new ProjectDiscoverer();
     this.cache = new Map();
+    this.cacheTimestamps = new Map(); // Security: Track cache timestamps for invalidation
   }
 
   /**
@@ -20,7 +21,9 @@ class ConfigurationManager {
    */
   async loadConfiguration(projectRoot = process.cwd()) {
     const cacheKey = projectRoot;
-    if (this.cache.has(cacheKey)) {
+    
+    // Security: Check cache validity by mtime
+    if (this.cache.has(cacheKey) && this.isCacheValid(projectRoot)) {
       return this.cache.get(cacheKey);
     }
 
@@ -61,6 +64,7 @@ class ConfigurationManager {
       };
 
       this.cache.set(cacheKey, config);
+      this.cacheTimestamps.set(cacheKey, Date.now()); // Security: Record cache timestamp
       return config;
     } catch (error) {
       throw new Error(`Failed to load configuration: ${error.message}`);
@@ -142,10 +146,72 @@ EXECUTION_MEMORY_LIMIT=8GB
   }
 
   /**
+   * Check if cache is still valid based on file modification times and content hash
+   */
+  isCacheValid(projectRoot) {
+    try {
+      const cacheKey = projectRoot;
+      const cacheTime = this.cacheTimestamps.get(cacheKey);
+      if (!cacheTime) return false;
+
+      // Check if key files have been modified since cache
+      const keyFiles = [
+        path.join(projectRoot, '.env'),
+        path.join(projectRoot, 'Cargo.toml'),
+        path.join(projectRoot, 'package.json')
+      ];
+
+      for (const file of keyFiles) {
+        if (fs.existsSync(file)) {
+          const stats = fs.statSync(file);
+          if (stats.mtime.getTime() > cacheTime) {
+            return false; // File modified after cache
+          }
+          
+          // Also check content hash for binaries where mtime can be preserved
+          if (file.endsWith('.toml') || file.endsWith('.json')) {
+            const content = fs.readFileSync(file, 'utf8');
+            const contentHash = this.getContentHash(content);
+            const cachedHash = this.cacheContentHashes?.get(file);
+            
+            if (cachedHash && cachedHash !== contentHash) {
+              return false; // Content changed even if mtime didn't
+            }
+            
+            // Store current hash
+            if (!this.cacheContentHashes) {
+              this.cacheContentHashes = new Map();
+            }
+            this.cacheContentHashes.set(file, contentHash);
+          }
+        }
+      }
+
+      return true;
+    } catch (error) {
+      return false; // If we can't check, invalidate cache
+    }
+  }
+
+  /**
+   * Generate content hash for cache invalidation
+   * @param {string} content - File content
+   * @returns {string} Content hash
+   */
+  getContentHash(content) {
+    const crypto = require('crypto');
+    return crypto.createHash('sha256').update(content).digest('hex').substring(0, 16);
+  }
+
+  /**
    * Clear cache
    */
   clearCache() {
     this.cache.clear();
+    this.cacheTimestamps.clear(); // Clear timestamps too
+    if (this.cacheContentHashes) {
+      this.cacheContentHashes.clear();
+    }
   }
 
   /**

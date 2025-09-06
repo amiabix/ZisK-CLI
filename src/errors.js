@@ -103,12 +103,12 @@ class ErrorContextCollector {
         code: error.code || 'UNKNOWN_ERROR'
       },
 
-      // Command context
+      // Command context with sanitized sensitive data
       command: {
         name: command?.name,
-        args: command?.args || [],
-        options: options || {},
-        workingDirectory: process.cwd(),
+        args: this.sanitizeArgs(command?.args || []),
+        options: this.sanitizeOptions(options || {}),
+        workingDirectory: this.sanitizePath(process.cwd()),
         startTime: command?.startTime,
         duration: command?.startTime ? Date.now() - command.startTime : null
       },
@@ -124,6 +124,69 @@ class ErrorContextCollector {
     };
 
     return context;
+  }
+
+  /**
+   * Sanitize command arguments to prevent sensitive data exposure
+   * @param {Array} args - Command arguments
+   * @returns {Array} Sanitized arguments
+   */
+  sanitizeArgs(args) {
+    return args.map(arg => {
+      if (typeof arg !== 'string') return arg;
+      
+      // Redact sensitive patterns
+      if (arg.includes('--proving-key') || arg.includes('--witness') || 
+          arg.includes('--secret') || arg.includes('--key')) {
+        return '[REDACTED]';
+      }
+      
+      // Redact paths that might contain sensitive information
+      if (arg.includes('/.ssh/') || arg.includes('/.zisk/') || 
+          arg.includes('password') || arg.includes('token')) {
+        return '[REDACTED]';
+      }
+      
+      return arg;
+    });
+  }
+
+  /**
+   * Sanitize options to prevent sensitive data exposure
+   * @param {Object} options - Command options
+   * @returns {Object} Sanitized options
+   */
+  sanitizeOptions(options) {
+    const sanitized = {};
+    
+    for (const [key, value] of Object.entries(options)) {
+      if (typeof value === 'string' && 
+          (value.includes('--proving-key') || value.includes('--witness') ||
+           value.includes('/.ssh/') || value.includes('/.zisk/'))) {
+        sanitized[key] = '[REDACTED]';
+      } else {
+        sanitized[key] = value;
+      }
+    }
+    
+    return sanitized;
+  }
+
+  /**
+   * Sanitize path to prevent directory traversal exposure
+   * @param {string} pathValue - Path to sanitize
+   * @returns {string} Sanitized path
+   */
+  sanitizePath(pathValue) {
+    if (typeof pathValue !== 'string') return String(pathValue);
+    
+    // Only show relative path from project root
+    const projectRoot = process.cwd();
+    if (pathValue.startsWith(projectRoot)) {
+      return pathValue.substring(projectRoot.length + 1) || '.';
+    }
+    
+    return path.basename(pathValue);
   }
 
   /**
@@ -347,10 +410,11 @@ class RecoveryManager {
     const { execSync } = require('child_process');
     
     try {
-      // Kill any running zisk processes
-      execSync('pkill -f zisk', { stdio: 'ignore' });
-    } catch {
-      // Ignore errors if no processes found
+      // Use specific pattern matching to avoid killing unintended processes
+      execSync('pkill -f "cargo-zisk|ziskemu" || true', { stdio: 'ignore' });
+    } catch (error) {
+      // Log actual error instead of ignoring
+      console.warn('Failed to kill background processes:', error.message);
     }
   }
 

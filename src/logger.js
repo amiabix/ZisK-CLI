@@ -13,7 +13,14 @@ class Logger {
     this.level = 'info';
     this.verbose = false;
     this.loggers = new Map();
-    this.logDir = path.join(process.cwd(), '.zisk-build', 'logs');
+    
+    // Validate log directory path to prevent directory traversal
+    const basePath = path.resolve(process.cwd());
+    this.logDir = path.join(basePath, '.zisk-build', 'logs');
+    
+    if (!this.logDir.startsWith(basePath)) {
+      throw new Error('Invalid log directory path - potential directory traversal');
+    }
     
     // Ensure log directory exists
     fs.ensureDirSync(this.logDir);
@@ -33,6 +40,31 @@ class Logger {
   setVerbose(verbose) {
     this.verbose = verbose;
     this.updateLoggers();
+  }
+
+  /**
+   * Redact sensitive values from log messages
+   * @param {string} message - Log message to redact
+   * @returns {string} Redacted message
+   */
+  redactSensitiveValues(message) {
+    if (typeof message !== 'string') {
+      return String(message);
+    }
+
+    // Redact sensitive patterns
+    let redacted = message
+      .replace(/--proving-key\s+\S+/g, '--proving-key [REDACTED]')
+      .replace(/--witness\s+\S+/g, '--witness [REDACTED]')
+      .replace(/--key\s+\S+/g, '--key [REDACTED]')
+      .replace(/--secret\s+\S+/g, '--secret [REDACTED]')
+      .replace(/\/\.ssh\/[^\s]+/g, '/.ssh/[REDACTED]')
+      .replace(/\/\.zisk\/[^\s]+/g, '/.zisk/[REDACTED]')
+      .replace(/password[=:]\s*\S+/gi, 'password=[REDACTED]')
+      .replace(/token[=:]\s*\S+/gi, 'token=[REDACTED]')
+      .replace(/key[=:]\s*\S+/gi, 'key=[REDACTED]');
+
+    return redacted;
   }
 
   /**
@@ -168,14 +200,19 @@ class Logger {
    * Log command execution
    */
   logCommand(command, args = [], options = {}) {
-    // Show command execution with clean formatting
-    const fullCommand = `${command} ${args.join(' ')}`;
-    process.stdout.write(`\n[RUNNING] ${fullCommand}\n`);
+    // Redact sensitive values before logging
+    const redactedArgs = this.redactSensitiveValues(args.join(' '));
+    const fullCommand = `${command} ${redactedArgs}`;
+    
+    // Only show command if ZISK_DEBUG is enabled
+    if (process.env.ZISK_DEBUG) {
+      process.stdout.write(`\n[RUNNING] ${fullCommand}\n`);
+    }
     
     this.debug('Executing command', {
       command,
-      args,
-      options,
+      args: this.redactSensitiveValues(JSON.stringify(args)),
+      options: this.redactSensitiveValues(JSON.stringify(options)),
       cwd: process.cwd(),
       timestamp: new Date().toISOString()
     });

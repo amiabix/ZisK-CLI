@@ -9,6 +9,8 @@ const glob = require('glob');
 const chalk = require('chalk');
 const ora = require('ora').default;
 const inquirer = require('inquirer');
+const os = require('os');
+const pLimit = require('p-limit');
 
 const { Logger } = require('./logger');
 const { ConfigurationManager } = require('./config');
@@ -28,6 +30,193 @@ const platform = new PlatformManager();
 const executor = new CommandExecutor();
 const converter = new InputConverter();
 const errorHandler = new ErrorHandler();
+
+// Security: Enhanced input validation helpers
+function validateAndNormalizePath(inputPath, allowAbsolute = false, baseDir = process.cwd()) {
+  if (!inputPath || typeof inputPath !== 'string') {
+    throw new Error('Invalid path provided');
+  }
+
+  // Sanitize input first
+  const sanitized = sanitizeString(inputPath);
+  if (sanitized !== inputPath) {
+    throw new Error('Path contains invalid characters');
+  }
+
+  // Normalize the path
+  const normalized = path.normalize(sanitized);
+  
+  // Check for absolute paths if not allowed
+  if (!allowAbsolute && path.isAbsolute(normalized)) {
+    throw new Error('Absolute paths not allowed');
+  }
+
+  // Check for path traversal attempts
+  if (normalized.includes('..') || normalized.includes('~')) {
+    throw new Error('Path traversal detected');
+  }
+
+  // Check for suspicious patterns
+  if (detectSuspiciousPatterns(normalized)) {
+    throw new Error('Path contains suspicious patterns');
+  }
+
+  // Resolve against base directory to ensure it's within bounds
+  const resolved = path.resolve(baseDir, normalized);
+  const baseResolved = path.resolve(baseDir);
+  
+  if (!resolved.startsWith(baseResolved)) {
+    throw new Error('Path outside allowed directory');
+  }
+
+  return normalized;
+}
+
+function validateNumber(value, min = 0, max = Number.MAX_SAFE_INTEGER, name = 'value') {
+  const num = parseInt(value);
+  
+  if (isNaN(num)) {
+    throw new Error(`${name} must be a valid number`);
+  }
+  
+  if (num < min || num > max) {
+    throw new Error(`${name} must be between ${min} and ${max}`);
+  }
+  
+  return num;
+}
+
+function validateEnum(value, allowedValues, name = 'value') {
+  if (!allowedValues.includes(value)) {
+    throw new Error(`${name} must be one of: ${allowedValues.join(', ')}`);
+  }
+  return value;
+}
+
+function sanitizeString(input) {
+  if (typeof input !== 'string') {
+    return String(input);
+  }
+  
+  // Remove control characters and potential injection patterns
+  return input
+    .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remove control characters
+    .replace(/[;&|`$(){}[\]\\]/g, '') // Remove shell metacharacters
+    .trim();
+}
+
+function detectSuspiciousPatterns(input) {
+  const suspiciousPatterns = [
+    /\.\.\//g,           // Path traversal
+    /\.\.\\/g,           // Windows path traversal
+    /[;&|`$(){}[\]\\]/g, // Shell metacharacters
+    /[\x00-\x1F\x7F-\x9F]/g, // Control characters
+    /~/,                 // Home directory reference
+    /\/etc\//,           // System directory access
+    /\/proc\//,          // Process directory access
+    /\/sys\//            // System directory access
+  ];
+
+  for (const pattern of suspiciousPatterns) {
+    if (pattern.test(input)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Security: Comprehensive option validation
+function validateOptions(options, commandType = 'general') {
+  const errors = [];
+  
+  // Validate profile
+  if (options.profile) {
+    const validProfiles = ['debug', 'release'];
+    if (!validProfiles.includes(options.profile)) {
+      errors.push(`Invalid profile '${options.profile}'. Must be one of: ${validProfiles.join(', ')}`);
+    }
+  }
+  
+  // Validate target
+  if (options.target) {
+    const validTargets = ['riscv64ima-zisk-zkvm-elf', 'x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu'];
+    if (!validTargets.includes(options.target)) {
+      errors.push(`Invalid target '${options.target}'. Must be one of: ${validTargets.join(', ')}`);
+    }
+  }
+  
+  // Validate mode for specific commands
+  if (options.mode) {
+    const validModes = ['prove', 'verify', 'build', 'run'];
+    if (!validModes.includes(options.mode)) {
+      errors.push(`Invalid mode '${options.mode}'. Must be one of: ${validModes.join(', ')}`);
+    }
+  }
+  
+  // Validate features
+  if (options.features) {
+    if (typeof options.features !== 'string' && !Array.isArray(options.features)) {
+      errors.push('Features must be a string or array');
+    } else if (Array.isArray(options.features)) {
+      for (const feature of options.features) {
+        if (typeof feature !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(feature)) {
+          errors.push(`Invalid feature name '${feature}'. Must contain only letters, numbers, underscores, and hyphens`);
+        }
+      }
+    }
+  }
+  
+  // Validate numeric options
+  if (options.maxSteps) {
+    try {
+      validateNumber(options.maxSteps, 1, 10000000, 'maxSteps');
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+  
+  if (options.timeout) {
+    try {
+      validateNumber(options.timeout, 1000, 3600000, 'timeout');
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+  
+  // Validate boolean options
+  const booleanOptions = ['metrics', 'stats', 'verify', 'aggregate', 'force', 'all', 'skipSetup', 'skipProve'];
+  for (const option of booleanOptions) {
+    if (options[option] !== undefined && typeof options[option] !== 'boolean') {
+      errors.push(`Option '${option}' must be a boolean`);
+    }
+  }
+  
+  if (errors.length > 0) {
+    throw new Error(`Validation errors:\n${errors.map(e => `  - ${e}`).join('\n')}`);
+  }
+  
+  return true;
+}
+
+// Security: Validate and sanitize all input paths in options
+function validateInputPaths(options) {
+  const pathOptions = ['input', 'output', 'inputs', 'proof', 'proofs'];
+  const validatedOptions = { ...options };
+  
+  for (const pathOption of pathOptions) {
+    if (validatedOptions[pathOption]) {
+      if (Array.isArray(validatedOptions[pathOption])) {
+        validatedOptions[pathOption] = validatedOptions[pathOption].map(path => 
+          validateAndNormalizePath(path, false, process.cwd())
+        );
+      } else {
+        validatedOptions[pathOption] = validateAndNormalizePath(validatedOptions[pathOption], false, process.cwd());
+      }
+    }
+  }
+  
+  return validatedOptions;
+}
 
 // Doctor command implementation moved to the main doctorCommand function below
 
@@ -174,6 +363,17 @@ async function initCommand(name, options) {
     if (!projectName) {
       throw new Error('Project name is required. Use: zisk-dev init <project-name> or zisk-dev init --name <project-name>');
     }
+
+    // Security: Validate and sanitize project name
+    const sanitizedName = sanitizeString(projectName);
+    if (detectSuspiciousPatterns(sanitizedName)) {
+      throw new Error('Project name contains suspicious characters');
+    }
+    
+    // Validate project name format
+    if (!/^[a-zA-Z0-9_-]+$/.test(sanitizedName)) {
+      throw new Error('Project name must contain only letters, numbers, underscores, and hyphens');
+    }
     
     console.log(`Creating ZisK project: ${projectName}`);
     
@@ -263,6 +463,10 @@ async function buildCommand(options) {
   const spinner = ora('Building ZISK program...').start();
   
   try {
+    // Security: Validate and sanitize all options and paths
+    validateOptions(options, 'build');
+    const validatedOptions = validateInputPaths(options);
+    
     // Load complete configuration (system + project + .env overrides)
     const config = await configManager.loadConfiguration(process.cwd());
     
@@ -271,19 +475,19 @@ async function buildCommand(options) {
     
     if (isBasicProject) {
       // Build using standard cargo
-      const profile = options.profile || config.buildProfile || 'release';
+      const profile = validatedOptions.profile || config.buildProfile || 'release';
       const buildArgs = ['build'];
       
       if (profile === 'release') {
         buildArgs.push('--release');
       }
       
-      if (options.features) {
-        buildArgs.push('--features', options.features);
+      if (validatedOptions.features) {
+        buildArgs.push('--features', validatedOptions.features);
       }
       
-      if (options.target) {
-        buildArgs.push('--target', options.target);
+      if (validatedOptions.target) {
+        buildArgs.push('--target', validatedOptions.target);
       }
       
       console.log('Building basic Rust project with cargo...');
@@ -301,7 +505,7 @@ async function buildCommand(options) {
       
     } else {
       // Build using cargo-zisk - use configuration from system detection
-      const profile = options.profile || config.buildProfile || 'release';
+      const profile = validatedOptions.profile || config.buildProfile || 'release';
       const buildArgs = [];
       
       if (profile === 'release') {
@@ -309,13 +513,13 @@ async function buildCommand(options) {
       }
       
       // Use features from .env overrides if not provided via options
-      const features = options.features || config.buildFeatures;
+      const features = validatedOptions.features || config.buildFeatures;
       if (features) {
         buildArgs.push('--features', features);
       }
       
       // Use target from .env overrides if not provided via options
-      const target = options.target || config.buildTarget;
+      const target = validatedOptions.target || config.buildTarget;
       if (target) {
         buildArgs.push('--target', target);
       }
@@ -324,7 +528,8 @@ async function buildCommand(options) {
       spinner.stop();
       
       const buildResult = await executor.executeCargoZisk('build', buildArgs, {
-        cwd: process.cwd()
+        cwd: process.cwd(),
+        operation: 'build' // Security: Set operation type for appropriate timeout
       });
       
       // Restart spinner and show success
@@ -334,7 +539,9 @@ async function buildCommand(options) {
       // Verify ELF file was created
       const elfPath = await getExpectedElfPath(profile, config.projectName);
       if (!fs.existsSync(elfPath)) {
-        throw new Error(`ELF file not found at expected path: ${elfPath}`);
+        // Security: Don't leak internal paths in error messages
+        const debugMsg = process.env.ZISK_DEBUG ? ` (Expected: ${elfPath})` : '';
+        throw new Error(`Build output not found. Run with ZISK_DEBUG=1 for details${debugMsg}`);
       }
       
       // Display build information
@@ -358,6 +565,10 @@ async function runCommand(options) {
   const spinner = ora('Running ZISK pipeline...').start();
   
   try {
+    // Security: Validate and sanitize all options and paths
+    validateOptions(options, 'run');
+    const validatedOptions = validateInputPaths(options);
+    
     // Load configuration from .zisk-env file
     const config = await loadProjectConfig(process.cwd());
     
@@ -510,6 +721,10 @@ async function proveCommand(options) {
   const spinner = ora('Generating zero-knowledge proof...').start();
   
   try {
+    // Security: Validate and sanitize all options and paths
+    validateOptions(options, 'prove');
+    const validatedOptions = validateInputPaths(options);
+    
     // Load complete configuration (system + project + .env overrides)
     const config = await configManager.loadConfiguration(process.cwd());
     
@@ -529,56 +744,68 @@ async function proveCommand(options) {
     }
     
     // Get input files
-    const inputFiles = await getInputFiles(options);
+    const inputFiles = await getInputFiles(validatedOptions);
     
     // Convert inputs if needed
-    const convertedInputs = await convertInputs(inputFiles, options);
+    const convertedInputs = await convertInputs(inputFiles, validatedOptions);
     
-    // Generate proofs for each input
-    const results = [];
+    // Apply concurrency control at operation level
+    const maxConcurrentProofs = Math.min(convertedInputs.length, 3); // Max 3 concurrent proofs
+    const proofLimit = pLimit(maxConcurrentProofs);
     
-    for (const input of convertedInputs) {
-      // Follow the ZisK documentation proving process
-      const proveArgs = [];
-      
-      // Add ELF file path
-      const elfPath = await getExpectedElfPath(options.profile || 'release');
-      proveArgs.push('-e', elfPath);
-      
-      // Add input file
-      proveArgs.push('-i', input.outputPath);
-      
-      // Add output directory - use OUTPUT_DIRECTORY from .zisk-env if not provided
-      const outputDir = options.output || config.outputDirectory || './proofs';
-      proveArgs.push('-o', outputDir);
-      
-      // Add witness library path (from system detection)
-      proveArgs.push('-w', config.witnessLibPath);
-      
-      // Add proving key path (from system detection)
-      proveArgs.push('-k', config.provingKeyPath);
-      
-      // Add aggregation flag
-      if (options.aggregate) {
-        proveArgs.push('-a');
-      }
-      
-      // Add verification flag
-      if (options.verify) {
-        proveArgs.push('-y');
-      }
-      
-      const result = await executor.executeCargoZisk('prove', proveArgs, {
-        cwd: process.cwd()
-      });
-      
-      results.push({
-        input: input.inputPath,
-        proof: result.stdout,
-        duration: result.duration,
-        outputDir
-      });
-    }
+    // Generate proofs for each input with concurrency control
+    const results = await Promise.all(
+      convertedInputs.map(input => 
+        proofLimit(async () => {
+          // Follow the ZisK documentation proving process
+          const proveArgs = [];
+          
+          // Add ELF file path - Validate ELF path
+          const elfPath = await getExpectedElfPath(validatedOptions.profile || 'release');
+          const validatedElfPath = validateAndNormalizePath(elfPath, false, process.cwd());
+          proveArgs.push('-e', validatedElfPath);
+          
+          // Add input file - Validate input path
+          const validatedInputPath = validateAndNormalizePath(input.outputPath, false, process.cwd());
+          proveArgs.push('-i', validatedInputPath);
+          
+          // Add output directory - use OUTPUT_DIRECTORY from .zisk-env if not provided
+          const outputDir = validatedOptions.output || config.outputDirectory || './proofs';
+          
+          // Validate output directory path
+          const validatedOutputDir = validateAndNormalizePath(outputDir, false, process.cwd());
+          proveArgs.push('-o', validatedOutputDir);
+          
+          // Add witness library path (from system detection)
+          proveArgs.push('-w', config.witnessLibPath);
+          
+          // Add proving key path (from system detection)
+          proveArgs.push('-k', config.provingKeyPath);
+          
+          // Add aggregation flag
+          if (validatedOptions.aggregate) {
+            proveArgs.push('-a');
+          }
+          
+          // Add verification flag
+          if (validatedOptions.verify) {
+            proveArgs.push('-y');
+          }
+          
+          const result = await executor.executeCargoZisk('prove', proveArgs, {
+            cwd: process.cwd(),
+            operation: 'prove' // Security: Set operation type for appropriate timeout
+          });
+          
+          return {
+            input: input.inputPath,
+            proof: result.stdout,
+            duration: result.duration,
+            outputDir
+          };
+        })
+      )
+    );
     
     spinner.succeed('Proof generation completed successfully');
     
@@ -710,10 +937,14 @@ async function watchCommand(options) {
   console.log('Watching for file changes...');
   
   const patterns = options.patterns || ['programs/**/*.rs', 'inputs/**/*'];
+  
+  // Security: Validate debounce value
+  const debounce = validateNumber(options.debounce || 1000, 100, 60000, 'debounce');
+  
   const watcher = chokidar.watch(patterns, {
     ignored: /(^|[\/\\])\../,
     persistent: true,
-    debounce: parseInt(options.debounce) || 1000
+    debounce: debounce
   });
   
   let isBuilding = false;
@@ -1738,7 +1969,9 @@ async function executeSingleInput(input, elfPath, options) {
   // Use maxSteps from .zisk-env if not provided via options
   const maxSteps = options.maxSteps || config?.EXECUTION_MAX_STEPS;
   if (maxSteps) {
-    ziskemuArgs.push('-n', maxSteps.toString());
+    // Security: Validate maxSteps range
+    const validatedMaxSteps = validateNumber(maxSteps, 1, 1000000000, 'maxSteps');
+    ziskemuArgs.push('-n', validatedMaxSteps.toString());
   }
   
   if (options.metrics) {
@@ -1831,7 +2064,8 @@ async function getInputFiles(options) {
   }
   
   if (options.inputs) {
-    return glob.sync(options.inputs);
+    const matches = glob.sync(options.inputs);
+    return await applyGlobLimits(matches);
   }
   
   // Load configuration from .zisk-env file
@@ -1868,10 +2102,69 @@ async function getInputFiles(options) {
   
   // Fallback: get all input files from inputs directory
   if (fs.existsSync(inputDir)) {
-    return glob.sync(`${inputDir}/*`);
+    const matches = glob.sync(`${inputDir}/*`);
+    return await applyGlobLimits(matches);
   }
   
   return [];
+}
+
+/**
+ * Apply glob limits and file size checks
+ * @param {Array} inputs - Input file patterns/paths
+ * @returns {Array} Filtered and validated input files
+ */
+async function applyGlobLimits(inputs) {
+  const fs = require('fs-extra');
+  const path = require('path');
+  
+  const MAX_GLOB_MATCHES = 1000;
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+  const validInputs = [];
+  
+  for (const input of inputs) {
+    try {
+      // Check if it's a glob pattern
+      if (input.includes('*') || input.includes('?')) {
+        const matches = glob.sync(input, { cwd: process.cwd() });
+        
+        // Cap total matches
+        if (matches.length > MAX_GLOB_MATCHES) {
+          throw new Error(`Too many files matched by pattern '${input}': ${matches.length} (max: ${MAX_GLOB_MATCHES})`);
+        }
+        
+        // Check file sizes
+        for (const match of matches) {
+          const fullPath = path.resolve(process.cwd(), match);
+          if (fs.existsSync(fullPath)) {
+            const stats = fs.statSync(fullPath);
+            if (stats.isFile() && stats.size > MAX_FILE_SIZE) {
+              console.warn(`Skipping large file: ${match} (${Math.round(stats.size / 1024 / 1024)}MB)`);
+              continue;
+            }
+            validInputs.push(match);
+          }
+        }
+      } else {
+        // Single file - check size
+        const fullPath = path.resolve(process.cwd(), input);
+        if (fs.existsSync(fullPath)) {
+          const stats = fs.statSync(fullPath);
+          if (stats.isFile() && stats.size > MAX_FILE_SIZE) {
+            throw new Error(`File too large: ${input} (${Math.round(stats.size / 1024 / 1024)}MB, max: ${Math.round(MAX_FILE_SIZE / 1024 / 1024)}MB)`);
+          }
+          validInputs.push(input);
+        }
+      }
+    } catch (error) {
+      if (error.message.includes('Too many files') || error.message.includes('too large')) {
+        throw error;
+      }
+      console.warn(`Skipping invalid input: ${input} - ${error.message}`);
+    }
+  }
+  
+  return validInputs;
 }
 
 async function convertInputs(inputFiles, options) {

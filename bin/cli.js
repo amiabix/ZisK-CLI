@@ -8,6 +8,23 @@
 const { Command } = require('commander');
 const chalk = require('chalk');
 const { version } = require('../package.json');
+
+// Input validation functions
+function validateNumericOption(value, option) {
+  const num = parseInt(value);
+  if (isNaN(num) || num < 0) {
+    throw new Error(`${option} must be a positive number, got: ${value}`);
+  }
+  return num;
+}
+
+function validateDebounce(value) {
+  const num = parseInt(value);
+  if (isNaN(num) || num < 100 || num > 60000) {
+    throw new Error(`Debounce must be between 100 and 60000 milliseconds, got: ${value}`);
+  }
+  return num;
+}
 const { 
   initCommand, 
   buildCommand, 
@@ -85,7 +102,7 @@ program
   .option('--skip-prove', 'Skip proof generation')
   .option('--skip-verify', 'Skip proof verification')
   .option('--skip-setup', 'Skip ROM setup')
-  .option('--max-steps <number>', 'Maximum execution steps')
+  .option('--max-steps <number>', 'Maximum execution steps', validateNumericOption)
   .option('--metrics', 'Show execution metrics')
   .option('--stats', 'Show execution statistics')
   .action(runCommand);
@@ -98,7 +115,7 @@ program
   .option('--parallel', 'Run inputs in parallel')
   .option('--metrics', 'Show execution metrics')
   .option('--stats', 'Show execution statistics')
-  .option('--max-steps <number>', 'Maximum execution steps')
+  .option('--max-steps <number>', 'Maximum execution steps', validateNumericOption)
   .option('--profile <profile>', 'Build profile (debug, release)', 'release')
   .action(executeCommand);
 
@@ -134,7 +151,7 @@ program
   .command('watch')
   .description('Watch for file changes and auto-rebuild')
   .option('--patterns <patterns>', 'File patterns to watch')
-  .option('--debounce <ms>', 'Debounce time in milliseconds', '1000')
+  .option('--debounce <ms>', 'Debounce time in milliseconds', validateDebounce, 1000)
   .option('--on-change <command>', 'Command to run on file change')
   .action(watchCommand);
 
